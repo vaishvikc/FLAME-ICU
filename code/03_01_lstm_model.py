@@ -19,7 +19,7 @@ torch.manual_seed(42)
 
 # Load data
 print("Loading data...")
-df = pd.read_parquet('code/output/intermitted/by_hourly_wide_df.parquet')
+df = pd.read_parquet('../output/intermitted/by_hourly_wide_df.parquet')
 print(f"Data shape: {df.shape}")
 print(f"Number of unique hospitalization_ids: {df['hospitalization_id'].nunique()}")
 
@@ -338,19 +338,23 @@ plt.title('Training and Validation Accuracy')
 plt.xlabel('Epoch')
 plt.ylabel('Accuracy')
 plt.legend()
-plt.savefig('training_history.png')
+plt.savefig(os.path.join(graphs_dir, 'lstm_training_history.png'))
 plt.close()
 
 # Create calibration plot
 plt.figure(figsize=(10, 6))
 disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=10, name='LSTM')
 plt.title('Calibration Plot')
-plt.savefig('calibration_plot.png')
+plt.savefig(os.path.join(graphs_dir, 'lstm_calibration_plot.png'))
 plt.close()
 
 # Create model directory if it doesn't exist
 model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'model')
 os.makedirs(model_dir, exist_ok=True)
+
+# Create graphs directory if it doesn't exist
+graphs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output', 'final', 'graphs')
+os.makedirs(graphs_dir, exist_ok=True)
 
 # Save the trained model
 model_path = os.path.join(model_dir, 'lstm_icu_mortality_model.pt')
@@ -369,4 +373,4 @@ with open(feature_cols_path, 'wb') as f:
     pickle.dump(feature_cols, f)
 print(f"Feature columns saved to {feature_cols_path}")
 
-print("Evaluation completed. Results saved in training_history.png and calibration_plot.png")
+print(f"Evaluation completed. Results saved in {os.path.join(graphs_dir, 'lstm_training_history.png')} and {os.path.join(graphs_dir, 'lstm_calibration_plot.png')}")

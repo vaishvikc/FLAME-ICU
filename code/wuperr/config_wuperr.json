@@ -1,0 +1,134 @@
+{
+  "experiment_name": "WUPERR_Sequential_Federated_Learning",
+  "description": "Sequential WUPERR algorithm for federated LSTM training across 8 sites",
+  
+  "federated_learning": {
+    "num_sites": 8,
+    "num_rounds": 3,
+    "training_mode": "sequential"
+  },
+  
+  "model_architecture": {
+    "hidden_size1": 64,
+    "hidden_size2": 32,
+    "output_size": 1,
+    "dropout_rate": 0.2
+  },
+  
+  "training_parameters": {
+    "num_epochs": 20,
+    "batch_size": 16,
+    "learning_rate": 0.001,
+    "weight_decay": 1e-5,
+    "patience": 5
+  },
+  
+  "wuperr_parameters": {
+    "regularization_lambda": 0.01,
+    "update_threshold": 0.001,
+    "fisher_samples": 200,
+    "ewc_lambda": 0.4
+  },
+  
+  "data_parameters": {
+    "test_size": 0.2,
+    "random_state": 42,
+    "sequence_length": 24,
+    "feature_scaling": true
+  },
+  
+  "site_configuration": {
+    "site_1": {
+      "type": "large_academic",
+      "proportion": 0.25,
+      "bias": "high_acuity",
+      "description": "Large academic medical center with high acuity patients"
+    },
+    "site_2": {
+      "type": "large_community",
+      "proportion": 0.20,
+      "bias": "balanced",
+      "description": "Large community hospital with balanced patient mix"
+    },
+    "site_3": {
+      "type": "medium_academic",
+      "proportion": 0.15,
+      "bias": "research_focused",
+      "description": "Medium academic center with research focus"
+    },
+    "site_4": {
+      "type": "medium_community",
+      "proportion": 0.15,
+      "bias": "balanced",
+      "description": "Medium community hospital with balanced patient mix"
+    },
+    "site_5": {
+      "type": "small_community",
+      "proportion": 0.10,
+      "bias": "low_acuity",
+      "description": "Small community hospital with lower acuity patients"
+    },
+    "site_6": {
+      "type": "small_rural",
+      "proportion": 0.08,
+      "bias": "limited_resources",
+      "description": "Small rural hospital with limited resources"
+    },
+    "site_7": {
+      "type": "specialty_hospital",
+      "proportion": 0.05,
+      "bias": "specific_conditions",
+      "description": "Specialty hospital focusing on specific conditions"
+    },
+    "site_8": {
+      "type": "critical_access",
+      "proportion": 0.02,
+      "bias": "basic_care",
+      "description": "Critical access hospital providing basic care"
+    }
+  },
+  
+  "output_configuration": {
+    "save_frequency": 1,
+    "model_dir": "model",
+    "logs_dir": "logs",
+    "graphs_dir": "../output/final/graphs",
+    "results_dir": "results"
+  },
+  
+  "git_configuration": {
+    "use_git_lfs": true,
+    "auto_commit": true,
+    "commit_message_template": "WUPERR Site {site_id} Round {round_num}: Acc={accuracy:.3f}, Loss={loss:.3f}, AUC={auc:.3f}",
+    "branch_strategy": "main"
+  },
+  
+  "evaluation_metrics": [
+    "accuracy",
+    "auc",
+    "loss",
+    "precision",
+    "recall",
+    "f1_score"
+  ],
+  
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file_logging": true,
+    "console_logging": true
+  },
+  
+  "hardware": {
+    "use_gpu": true,
+    "gpu_device": "cuda",
+    "fallback_device": "cpu",
+    "memory_limit": null
+  },
+  
+  "reproducibility": {
+    "random_seed": 42,
+    "deterministic": true,
+    "benchmark": false
+  }
+}

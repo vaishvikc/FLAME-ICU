@@ -194,7 +194,7 @@ def main():
     model_dir = os.path.join(project_dir, 'model')
     
     # For demonstration, using the original data file
-    data_path = os.path.join(project_dir, 'code', 'output', 'intermitted', 'by_hourly_wide_df.parquet')
+    data_path = os.path.join(project_dir, 'output', 'intermitted', 'by_hourly_wide_df.parquet')
     
     # Check if model exists
     if not os.path.exists(os.path.join(model_dir, 'lstm_icu_mortality_model.pt')):

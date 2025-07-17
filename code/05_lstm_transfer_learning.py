@@ -131,6 +131,10 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
+    # Create graphs directory if it doesn't exist
+    graphs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output', 'final', 'graphs')
+    os.makedirs(graphs_dir, exist_ok=True)
+    
     # Load pre-trained model and metadata
     model, scaler, feature_cols = load_model_and_metadata(model_dir)
     
@@ -335,7 +339,7 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     plt.legend()
     plt.title('Accuracy History')
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'transfer_learning_history.png'))
+    plt.savefig(os.path.join(graphs_dir, 'lstm_transfer_learning_history.png'))
     
     # Evaluate on test set
     print("\nEvaluating transfer-learned model...")
@@ -372,7 +376,7 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     plt.figure(figsize=(10, 6))
     disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=5, name='Transfer-Learned LSTM')
     plt.title('Calibration Plot')
-    plt.savefig(os.path.join(output_dir, 'transfer_learning_calibration.png'))
+    plt.savefig(os.path.join(graphs_dir, 'lstm_transfer_learning_calibration.png'))
     
     # Save the transfer-learned model
     transfer_model_path = os.path.join(output_dir, 'transfer_lstm_model.pt')
@@ -456,7 +460,7 @@ def main():
     
     # For demonstration, using the original data as "new hospital data"
     # In a real scenario, this would be data from a different hospital
-    data_path = os.path.join(project_dir, 'code', 'output', 'intermitted', 'by_hourly_wide_df.parquet')
+    data_path = os.path.join(project_dir, 'output', 'intermitted', 'by_hourly_wide_df.parquet')
     
     # Check if original model exists
     if not os.path.exists(os.path.join(model_dir, 'lstm_icu_mortality_model.pt')):
