@@ -1,14 +1,24 @@
 import pandas as pd
 import numpy as np
 import os
+import json
 import pickle
 import xgboost as xgb
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix
 
-def load_model_and_metadata(model_dir):
+def load_config():
+    """Load configuration from config file"""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    return config
+
+def load_model_and_metadata():
     """Load saved XGBoost model, scaler, and feature columns"""
-    model_path = os.path.join(model_dir, 'xgb_icu_mortality_model.json')
-    scaler_path = os.path.join(model_dir, 'xgb_feature_scaler.pkl')
-    feature_cols_path = os.path.join(model_dir, 'xgb_feature_columns.pkl')
+    config = load_config()
+    model_path = config['output_config']['model_path']
+    scaler_path = config['output_config']['scaler_path']
+    feature_cols_path = config['output_config']['feature_cols_path']
     
     # Load feature columns
     with open(feature_cols_path, 'rb') as f:
@@ -27,7 +37,6 @@ def load_model_and_metadata(model_dir):
 def prepare_aggregated_data(df, available_features):
     """
     Aggregate data by hospitalization_id, calculating min, max, and median for each feature
-    Similar to the training process in 03_02_xgbmodel.py
     """
     # Create aggregation functions
     aggregation_funcs = {}
@@ -49,24 +58,30 @@ def prepare_aggregated_data(df, available_features):
     
     return agg_df
 
-def predict_mortality(data_path, model_dir):
+def predict_mortality(data_path=None):
     """
     Predict ICU mortality using the trained XGBoost model
     
     Parameters:
     -----------
-    data_path : str
-        Path to the data file (parquet format)
-    model_dir : str
-        Directory containing the saved model and metadata
+    data_path : str, optional
+        Path to the data file (parquet format). If None, uses the path from config.
     
     Returns:
     --------
     predictions : dict
         Dictionary mapping hospitalization_id to predicted mortality probability
     """
+    # Load config
+    config = load_config()
+    
     # Load model and metadata
-    model, scaler, expected_feature_cols = load_model_and_metadata(model_dir)
+    model, scaler, expected_feature_cols = load_model_and_metadata()
+    
+    # If no data path provided, use the one from config
+    if data_path is None:
+        data_path = os.path.join(config['data_config']['preprocessing_path'], 
+                                config['data_config']['feature_file'])
     
     # Load data
     print(f"Loading data from {data_path}...")
@@ -145,25 +160,36 @@ def predict_mortality(data_path, model_dir):
             'actual_class': targets[i] if targets else None
         }
     
+    # Evaluate if actual labels are available
+    if targets is not None:
+        y_true = [p['actual_class'] for p in predictions.values()]
+        y_pred = [p['predicted_class'] for p in predictions.values()]
+        y_prob = [p['mortality_probability'] for p in predictions.values()]
+        
+        print("\nEvaluation Metrics:")
+        print(f"Accuracy: {accuracy_score(y_true, y_pred):.4f}")
+        print(f"ROC AUC: {roc_auc_score(y_true, y_prob):.4f}")
+        
+        print("\nClassification Report:")
+        print(classification_report(y_true, y_pred))
+        
+        print("Confusion Matrix:")
+        print(confusion_matrix(y_true, y_pred))
+    
     return predictions
 
 def main():
     """Main function to run inference"""
     # Get paths
-    code_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.dirname(code_dir)
-    model_dir = os.path.join(project_dir, 'model')
-    
-    # For demonstration, using the original data file
-    data_path = os.path.join(project_dir, 'output', 'intermitted', 'by_event_wide_df.parquet')
+    config = load_config()
     
     # Check if model exists
-    if not os.path.exists(os.path.join(model_dir, 'xgb_icu_mortality_model.json')):
-        print(f"Error: XGBoost model file not found in {model_dir}")
+    if not os.path.exists(config['output_config']['model_path']):
+        print(f"Error: XGBoost model file not found at {config['output_config']['model_path']}")
         return
     
     # Make predictions
-    predictions = predict_mortality(data_path, model_dir)
+    predictions = predict_mortality()
     
     if predictions is None:
         print("Error in making predictions. Please check the data format.")
@@ -179,24 +205,6 @@ def main():
     
     print(f"Predicted positive (mortality): {pred_positives} ({pred_positives/len(predictions)*100:.2f}%)")
     print(f"Predicted negative (survival): {pred_negatives} ({pred_negatives/len(predictions)*100:.2f}%)")
-    
-    # Evaluate if actual labels are available
-    if all(p['actual_class'] is not None for p in predictions.values()):
-        from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix
-        
-        y_true = [p['actual_class'] for p in predictions.values()]
-        y_pred = [p['predicted_class'] for p in predictions.values()]
-        y_prob = [p['mortality_probability'] for p in predictions.values()]
-        
-        print("\nEvaluation Metrics:")
-        print(f"Accuracy: {accuracy_score(y_true, y_pred):.4f}")
-        print(f"ROC AUC: {roc_auc_score(y_true, y_prob):.4f}")
-        
-        print("\nClassification Report:")
-        print(classification_report(y_true, y_pred))
-        
-        print("Confusion Matrix:")
-        print(confusion_matrix(y_true, y_pred))
     
     # Sample individual predictions (show first 5)
     print("\nSample Predictions:")

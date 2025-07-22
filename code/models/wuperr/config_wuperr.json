@@ -90,10 +90,10 @@
   
   "output_configuration": {
     "save_frequency": 1,
-    "model_dir": "model",
-    "logs_dir": "logs",
-    "graphs_dir": "../output/final/graphs",
-    "results_dir": "results"
+    "model_dir": "../../output/models/wuperr",
+    "logs_dir": "../../output/models/wuperr/logs",
+    "graphs_dir": "../../output/models/wuperr/graphs",
+    "results_dir": "../../output/models/wuperr/results"
   },
   
   "git_configuration": {

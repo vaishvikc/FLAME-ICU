@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import json
 import pickle
 import torch
 import torch.nn as nn
@@ -11,20 +12,27 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix
 from sklearn.calibration import CalibrationDisplay
 
+# Load configuration
+def load_config():
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    return config
+
 # Define the same LSTM model architecture used in training
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size1=64, hidden_size2=32, output_size=1):
+    def __init__(self, input_size, hidden_size1=64, hidden_size2=32, output_size=1, dropout_rate=0.2):
         super(LSTMModel, self).__init__()
         self.hidden_size1 = hidden_size1
         self.hidden_size2 = hidden_size2
         
         # First LSTM layer
         self.lstm1 = nn.LSTM(input_size, hidden_size1, batch_first=True)
-        self.dropout1 = nn.Dropout(0.2)
+        self.dropout1 = nn.Dropout(dropout_rate)
         
         # Second LSTM layer
         self.lstm2 = nn.LSTM(hidden_size1, hidden_size2, batch_first=True)
-        self.dropout2 = nn.Dropout(0.2)
+        self.dropout2 = nn.Dropout(dropout_rate)
         
         # Fully connected layers
         self.fc1 = nn.Linear(hidden_size2, 16)
@@ -48,10 +56,10 @@ class LSTMModel(nn.Module):
         x = self.fc2(x)
         return x
 
-def prepare_sequences(df, feature_cols):
+def prepare_sequences(df, feature_cols, sequence_length=24):
     """
-    Transform the data into 24-hour sequences for each hospitalization_id
-    Apply padding for hospitalization_ids with fewer than 24 hours
+    Transform the data into sequences for each hospitalization_id
+    Apply padding for hospitalization_ids with fewer than sequence_length hours
     Handle missing values by filling with zeros
     """
     # Dictionary to store sequences and targets
@@ -78,25 +86,37 @@ def prepare_sequences(df, feature_cols):
         # Handle NaN values by replacing with zeros
         seq = np.nan_to_num(seq, nan=0.0, posinf=0.0, neginf=0.0)
         
-        # Pad if needed (if less than 24 hours)
-        if len(seq) < 24:
+        # Pad if needed (if less than sequence_length hours)
+        if len(seq) < sequence_length:
             # Create padding (zeros)
-            padding = np.zeros((24 - len(seq), len(feature_cols)))
+            padding = np.zeros((sequence_length - len(seq), len(feature_cols)))
             seq = np.vstack([seq, padding])
-        # Truncate if more than 24 hours
-        elif len(seq) > 24:
-            seq = seq[:24]
+        # Truncate if more than sequence_length hours
+        elif len(seq) > sequence_length:
+            seq = seq[:sequence_length]
         
         # Store sequence and target
         sequences[hosp_id] = seq
     
     return sequences, targets
 
-def load_model_and_metadata(model_dir):
+def load_model_and_metadata():
     """Load saved model, scaler, and feature columns"""
-    model_path = os.path.join(model_dir, 'lstm_icu_mortality_model.pt')
-    scaler_path = os.path.join(model_dir, 'feature_scaler.pkl')
-    feature_cols_path = os.path.join(model_dir, 'feature_columns.pkl')
+    config = load_config()
+    output_config = config['output_config']
+    model_params = config['model_params']
+    data_config = config['data_config']
+    
+    model_path = output_config['model_path']
+    scaler_path = output_config['scaler_path']
+    feature_cols_path = output_config['feature_cols_path']
+    
+    # Resolve paths if they are relative
+    if not os.path.isabs(model_path):
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        model_path = os.path.join(base_dir, model_path)
+        scaler_path = os.path.join(base_dir, output_config['scaler_path'])
+        feature_cols_path = os.path.join(base_dir, output_config['feature_cols_path'])
     
     # Load feature columns
     with open(feature_cols_path, 'rb') as f:
@@ -108,35 +128,54 @@ def load_model_and_metadata(model_dir):
     
     # Initialize model with correct input size
     input_size = len(feature_cols)
-    model = LSTMModel(input_size=input_size)
+    model = LSTMModel(
+        input_size=input_size,
+        hidden_size1=model_params['hidden_size1'],
+        hidden_size2=model_params['hidden_size2'],
+        dropout_rate=model_params['dropout_rate']
+    )
     
     # Load model weights
     model.load_state_dict(torch.load(model_path))
     
-    return model, scaler, feature_cols
+    return model, scaler, feature_cols, data_config['sequence_length']
 
-def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs=50, patience=10):
+def transfer_learning(data_path=None, output_dir=None, batch_size=8, num_epochs=50, patience=10):
     """
     Perform transfer learning on a new hospital system dataset
     
     Parameters:
     -----------
-    data_path : str
-        Path to the new hospital data file (parquet format)
-    model_dir : str
-        Directory containing the original saved model and metadata
-    output_dir : str
-        Directory to save the transfer-learned model and results
+    data_path : str, optional
+        Path to the new hospital data file (parquet format). If None, uses the path from config.
+    output_dir : str, optional
+        Directory to save the transfer-learned model and results. If None, uses a default path.
     """
+    # Load configuration
+    config = load_config()
+    model_params = config['model_params']
+    training_config = config['training_config']
+    data_config = config['data_config']
+    
+    # Get data path from config if not provided
+    if data_path is None:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        data_path = os.path.join(base_dir, data_config['preprocessing_path'], data_config['feature_file'])
+    
+    # Set default output directory if not provided
+    if output_dir is None:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        output_dir = os.path.join(base_dir, 'output', 'models', 'lstm', 'transfer_learning')
+    
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create graphs directory if it doesn't exist
-    graphs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output', 'final', 'graphs')
-    os.makedirs(graphs_dir, exist_ok=True)
+    # Create plots directory
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
     
     # Load pre-trained model and metadata
-    model, scaler, feature_cols = load_model_and_metadata(model_dir)
+    model, scaler, feature_cols, sequence_length = load_model_and_metadata()
     
     # Load new hospital data
     print(f"Loading new hospital data from {data_path}...")
@@ -154,7 +193,7 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     
     # Prepare sequences
     print("Preparing sequences...")
-    sequences, targets = prepare_sequences(df, feature_cols)
+    sequences, targets = prepare_sequences(df, feature_cols, sequence_length)
     
     # Exclude samples without targets
     valid_samples = [(hosp_id, seq) for hosp_id, seq in sequences.items() if targets[hosp_id] is not None]
@@ -237,7 +276,7 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
             loss.backward()
             
             # Apply gradient clipping to prevent explosion
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=training_config['gradient_clip_value'])
             
             optimizer.step()
             
@@ -339,7 +378,7 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     plt.legend()
     plt.title('Accuracy History')
     plt.tight_layout()
-    plt.savefig(os.path.join(graphs_dir, 'lstm_transfer_learning_history.png'))
+    plt.savefig(os.path.join(plots_dir, 'lstm_transfer_learning_history.png'))
     
     # Evaluate on test set
     print("\nEvaluating transfer-learned model...")
@@ -370,13 +409,14 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     print(classification_report(y_test, y_pred))
     
     print("Confusion Matrix:")
-    print(confusion_matrix(y_test, y_pred))
+    cm = confusion_matrix(y_test, y_pred)
+    print(cm)
     
     # Create calibration plot
     plt.figure(figsize=(10, 6))
     disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=5, name='Transfer-Learned LSTM')
     plt.title('Calibration Plot')
-    plt.savefig(os.path.join(graphs_dir, 'lstm_transfer_learning_calibration.png'))
+    plt.savefig(os.path.join(plots_dir, 'lstm_transfer_learning_calibration.png'))
     
     # Save the transfer-learned model
     transfer_model_path = os.path.join(output_dir, 'transfer_lstm_model.pt')
@@ -394,7 +434,7 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     
     # Compare with original model performance on the same test set
     print("\nComparing with original model performance...")
-    original_model, _, _ = load_model_and_metadata(model_dir)
+    original_model, _, _, _ = load_model_and_metadata()
     original_model.eval()
     
     original_y_pred_proba = []
@@ -438,6 +478,27 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
     # Save comparison to CSV
     comparison.to_csv(os.path.join(output_dir, 'model_comparison.csv'), index=False)
     
+    # Save metrics
+    metrics = {
+        'original_model': {
+            'accuracy': float(original_accuracy),
+            'roc_auc': float(original_roc_auc)
+        },
+        'transfer_model': {
+            'accuracy': float(accuracy),
+            'roc_auc': float(roc_auc)
+        },
+        'training_history': {
+            'train_loss': [float(x) for x in train_losses],
+            'val_loss': [float(x) for x in val_losses],
+            'train_acc': [float(x) for x in train_accs],
+            'val_acc': [float(x) for x in val_accs]
+        }
+    }
+    
+    with open(os.path.join(output_dir, 'transfer_metrics.json'), 'w') as f:
+        json.dump(metrics, f, indent=2)
+    
     return {
         'model': model,
         'original_metrics': {
@@ -452,30 +513,14 @@ def transfer_learning(data_path, model_dir, output_dir, batch_size=8, num_epochs
 
 def main():
     """Main function for transfer learning"""
-    # Get paths
-    code_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.dirname(code_dir)
-    model_dir = os.path.join(project_dir, 'model')
-    output_dir = os.path.join(project_dir, 'model', 'transfer_learning')
-    
-    # For demonstration, using the original data as "new hospital data"
-    # In a real scenario, this would be data from a different hospital
-    data_path = os.path.join(project_dir, 'output', 'intermitted', 'by_hourly_wide_df.parquet')
-    
-    # Check if original model exists
-    if not os.path.exists(os.path.join(model_dir, 'lstm_icu_mortality_model.pt')):
-        print(f"Error: Original model not found in {model_dir}")
-        return
-    
     # Perform transfer learning
-    results = transfer_learning(data_path, model_dir, output_dir)
+    results = transfer_learning()
     
     if results is None:
         print("Transfer learning could not be completed.")
         return
     
     print("\nTransfer learning completed!")
-    print(f"Results saved in {output_dir}")
 
 if __name__ == "__main__":
     main()

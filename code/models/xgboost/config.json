@@ -1,0 +1,49 @@
+{
+  "model_params": {
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "eta": 0.05,
+    "max_depth": 3,
+    "min_child_weight": 3,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7,
+    "gamma": 1,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "seed": 42
+  },
+  "training_config": {
+    "num_rounds": 500,
+    "early_stopping_rounds": 20
+  },
+  "data_config": {
+    "preprocessing_path": "../output/preprocessing",
+    "feature_file": "by_event_wide_df.parquet",
+    "selected_features": [
+      "eosinophils_absolute",
+      "glucose_fingerstick",
+      "lymphocytes_absolute",
+      "monocytes_absolute",
+      "neutrophils_absolute",
+      "procalcitonin",
+      "troponin_i",
+      "wbc",
+      "gcs_total",
+      "rass",
+      "angiotensin",
+      "isoproterenol",
+      "ketamine",
+      "remifentanil",
+      "pentobarbital",
+      "lorazepam",
+      "fio2"
+    ]
+  },
+  "output_config": {
+    "model_path": "../output/models/xgboost/xgb_icu_mortality_model.json",
+    "scaler_path": "../output/models/xgboost/xgb_feature_scaler.pkl",
+    "feature_cols_path": "../output/models/xgboost/xgb_feature_columns.pkl",
+    "metrics_path": "../output/models/xgboost/metrics.json",
+    "plots_dir": "../output/models/xgboost/plots"
+  }
+}

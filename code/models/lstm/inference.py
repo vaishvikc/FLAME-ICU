@@ -1,25 +1,33 @@
 import pandas as pd
 import numpy as np
 import os
+import json
 import pickle
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 
+# Load configuration
+def load_config():
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    return config
+
 # Define the same LSTM model architecture used in training
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size1=64, hidden_size2=32, output_size=1):
+    def __init__(self, input_size, hidden_size1=64, hidden_size2=32, output_size=1, dropout_rate=0.2):
         super(LSTMModel, self).__init__()
         self.hidden_size1 = hidden_size1
         self.hidden_size2 = hidden_size2
         
         # First LSTM layer
         self.lstm1 = nn.LSTM(input_size, hidden_size1, batch_first=True)
-        self.dropout1 = nn.Dropout(0.2)
+        self.dropout1 = nn.Dropout(dropout_rate)
         
         # Second LSTM layer
         self.lstm2 = nn.LSTM(hidden_size1, hidden_size2, batch_first=True)
-        self.dropout2 = nn.Dropout(0.2)
+        self.dropout2 = nn.Dropout(dropout_rate)
         
         # Fully connected layers
         self.fc1 = nn.Linear(hidden_size2, 16)
@@ -44,10 +52,10 @@ class LSTMModel(nn.Module):
         x = self.fc2(x)
         return x
 
-def prepare_sequences(df, feature_cols):
+def prepare_sequences(df, feature_cols, sequence_length=24):
     """
-    Transform the data into 24-hour sequences for each hospitalization_id
-    Apply padding for hospitalization_ids with fewer than 24 hours
+    Transform the data into sequences for each hospitalization_id
+    Apply padding for hospitalization_ids with fewer than sequence_length hours
     Handle missing values by filling with zeros
     """
     # Dictionary to store sequences and targets
@@ -72,25 +80,37 @@ def prepare_sequences(df, feature_cols):
         else:
             targets[hosp_id] = None
         
-        # Pad if needed (if less than 24 hours)
-        if len(seq) < 24:
+        # Pad if needed (if less than sequence_length hours)
+        if len(seq) < sequence_length:
             # Create padding (zeros)
-            padding = np.zeros((24 - len(seq), len(feature_cols)))
+            padding = np.zeros((sequence_length - len(seq), len(feature_cols)))
             seq = np.vstack([seq, padding])
-        # Truncate if more than 24 hours
-        elif len(seq) > 24:
-            seq = seq[:24]
+        # Truncate if more than sequence_length hours
+        elif len(seq) > sequence_length:
+            seq = seq[:sequence_length]
             
         # Store sequence
         sequences[hosp_id] = seq
     
     return sequences, targets
 
-def load_model_and_metadata(model_dir):
+def load_model_and_metadata():
     """Load saved model, scaler, and feature columns"""
-    model_path = os.path.join(model_dir, 'lstm_icu_mortality_model.pt')
-    scaler_path = os.path.join(model_dir, 'feature_scaler.pkl')
-    feature_cols_path = os.path.join(model_dir, 'feature_columns.pkl')
+    config = load_config()
+    output_config = config['output_config']
+    model_params = config['model_params']
+    data_config = config['data_config']
+    
+    model_path = output_config['model_path']
+    scaler_path = output_config['scaler_path']
+    feature_cols_path = output_config['feature_cols_path']
+    
+    # Resolve paths if they are relative
+    if not os.path.isabs(model_path):
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        model_path = os.path.join(base_dir, model_path)
+        scaler_path = os.path.join(base_dir, output_config['scaler_path'])
+        feature_cols_path = os.path.join(base_dir, output_config['feature_cols_path'])
     
     # Load feature columns
     with open(feature_cols_path, 'rb') as f:
@@ -102,24 +122,27 @@ def load_model_and_metadata(model_dir):
     
     # Initialize model with correct input size
     input_size = len(feature_cols)
-    model = LSTMModel(input_size=input_size)
+    model = LSTMModel(
+        input_size=input_size,
+        hidden_size1=model_params['hidden_size1'],
+        hidden_size2=model_params['hidden_size2'],
+        dropout_rate=model_params['dropout_rate']
+    )
     
     # Load model weights
     model.load_state_dict(torch.load(model_path))
     model.eval()  # Set model to evaluation mode
     
-    return model, scaler, feature_cols
+    return model, scaler, feature_cols, data_config['sequence_length']
 
-def predict_mortality(data_path, model_dir):
+def predict_mortality(data_path=None):
     """
     Predict ICU mortality using the trained LSTM model
     
     Parameters:
     -----------
-    data_path : str
-        Path to the data file (parquet format)
-    model_dir : str
-        Directory containing the saved model and metadata
+    data_path : str, optional
+        Path to the data file (parquet format). If None, uses the path from config.
     
     Returns:
     --------
@@ -127,7 +150,14 @@ def predict_mortality(data_path, model_dir):
         Dictionary mapping hospitalization_id to predicted mortality probability
     """
     # Load model and metadata
-    model, scaler, feature_cols = load_model_and_metadata(model_dir)
+    model, scaler, feature_cols, sequence_length = load_model_and_metadata()
+    
+    # Get data path from config if not provided
+    if data_path is None:
+        config = load_config()
+        data_config = config['data_config']
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        data_path = os.path.join(base_dir, data_config['preprocessing_path'], data_config['feature_file'])
     
     # Load data
     print(f"Loading data from {data_path}...")
@@ -145,7 +175,7 @@ def predict_mortality(data_path, model_dir):
     
     # Prepare sequences
     print("Preparing sequences...")
-    sequences, targets = prepare_sequences(df, feature_cols)
+    sequences, targets = prepare_sequences(df, feature_cols, sequence_length)
     
     # Convert to numpy arrays
     X = np.array(list(sequences.values()))
@@ -188,21 +218,8 @@ def predict_mortality(data_path, model_dir):
 
 def main():
     """Main function to run inference"""
-    # Get paths
-    code_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.dirname(code_dir)
-    model_dir = os.path.join(project_dir, 'model')
-    
-    # For demonstration, using the original data file
-    data_path = os.path.join(project_dir, 'output', 'intermitted', 'by_hourly_wide_df.parquet')
-    
-    # Check if model exists
-    if not os.path.exists(os.path.join(model_dir, 'lstm_icu_mortality_model.pt')):
-        print(f"Error: Model file not found in {model_dir}")
-        return
-    
     # Make predictions
-    predictions = predict_mortality(data_path, model_dir)
+    predictions = predict_mortality()
     
     if predictions is None:
         print("Error in making predictions. Please check the data format.")

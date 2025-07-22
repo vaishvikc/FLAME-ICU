@@ -230,7 +230,7 @@ class MultisiteSimulator:
                 
                 # Run training script
                 cmd = [
-                    sys.executable, "06_wuperr_sequential_train.py",
+                    sys.executable, "sequential_train.py",
                     "--site_id", str(site_id),
                     "--round_num", str(round_num),
                     "--config", config_path
@@ -293,7 +293,7 @@ class MultisiteSimulator:
     
     def analyze_results(self):
         """Analyze and summarize federated training results."""
-        from wuperr.git_model_manager import GitModelManager
+        from .git_model_manager import GitModelManager
         
         logger.info("Analyzing federated training results")
         
@@ -369,7 +369,7 @@ def main():
     """Main function to run multisite simulation."""
     parser = argparse.ArgumentParser(description='Multisite WUPERR Simulation')
     parser.add_argument('--data_path', type=str, 
-                       default='../output/intermitted/by_hourly_wide_df.parquet',
+                       default='../../../output/intermitted/by_hourly_wide_df.parquet',
                        help='Path to main dataset')
     parser.add_argument('--num_sites', type=int, default=8,
                        help='Number of sites to simulate')
@@ -377,7 +377,7 @@ def main():
                        help='Number of training rounds')
     parser.add_argument('--output_dir', type=str, default='data/sites',
                        help='Output directory for site data')
-    parser.add_argument('--config', type=str, default='wuperr/config_wuperr.json',
+    parser.add_argument('--config', type=str, default='config_wuperr.json',
                        help='WUPERR configuration file')
     parser.add_argument('--setup_only', action='store_true',
                        help='Only setup site data, do not run training')

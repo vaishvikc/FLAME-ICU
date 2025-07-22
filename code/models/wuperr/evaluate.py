@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 # Import WUPERR components
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from wuperr.git_model_manager import GitModelManager
-from wuperr.sequential_wuperr import SequentialWUPERR
+from .git_model_manager import GitModelManager
+from .sequential_wuperr import SequentialWUPERR
 
 # Import LSTM model
-from code.06_wuperr_sequential_train import LSTMModel, prepare_sequences, create_data_loaders
+from .sequential_train import LSTMModel, prepare_sequences, create_data_loaders
 
 class WUPERRAnalyzer:
     """Analyze WUPERR federated learning results."""
@@ -270,7 +270,7 @@ class WUPERRAnalyzer:
             test_df = pd.read_parquet(global_test_data_path)
         else:
             logger.info("Using original dataset for evaluation")
-            test_df = pd.read_parquet('../output/intermitted/by_hourly_wide_df.parquet')
+            test_df = pd.read_parquet('../../../output/intermitted/by_hourly_wide_df.parquet')
         
         # Prepare test data
         feature_cols = metadata['feature_columns']

@@ -236,8 +236,8 @@ def main():
     
     logger.info("WUPERR Git LFS setup completed successfully!")
     logger.info("\nNext steps:")
-    logger.info("1. Run: python 07_simulate_multisite.py --setup_only")
-    logger.info("2. Run: python 07_simulate_multisite.py --num_rounds 3")
+    logger.info("1. Run: python code/models/wuperr/simulate_multisite.py --setup_only")
+    logger.info("2. Run: python code/models/wuperr/simulate_multisite.py --num_rounds 3")
     logger.info("3. Monitor progress in the logs/ directory")
     
     return True

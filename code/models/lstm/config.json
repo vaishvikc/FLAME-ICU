@@ -1,0 +1,27 @@
+{
+  "model_params": {
+    "hidden_size1": 64,
+    "hidden_size2": 32,
+    "dropout_rate": 0.2,
+    "batch_size": 16
+  },
+  "training_config": {
+    "learning_rate": 0.0005,
+    "weight_decay": 1e-5,
+    "num_epochs": 100,
+    "patience": 10,
+    "gradient_clip_value": 1.0
+  },
+  "data_config": {
+    "preprocessing_path": "../output/preprocessing",
+    "feature_file": "by_hourly_wide_df.parquet",
+    "sequence_length": 24
+  },
+  "output_config": {
+    "model_path": "../output/models/lstm/lstm_icu_mortality_model.pt",
+    "scaler_path": "../output/models/lstm/feature_scaler.pkl",
+    "feature_cols_path": "../output/models/lstm/feature_columns.pkl",
+    "metrics_path": "../output/models/lstm/metrics.json",
+    "plots_dir": "../output/models/lstm/plots"
+  }
+}

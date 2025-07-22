@@ -17,8 +17,8 @@ from datetime import datetime
 # Add current directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from wuperr.sequential_wuperr import SequentialWUPERR
-from wuperr.git_model_manager import GitModelManager
+from .sequential_wuperr import SequentialWUPERR
+from .git_model_manager import GitModelManager
 
 # Set up logging
 logging.basicConfig(
@@ -354,12 +354,15 @@ def main():
     parser = argparse.ArgumentParser(description='WUPERR Sequential Training')
     parser.add_argument('--site_id', type=int, required=True, help='Site ID (1-8)')
     parser.add_argument('--round_num', type=int, default=None, help='Round number (auto-detect if not provided)')
-    parser.add_argument('--config', type=str, default='wuperr/config_wuperr.json', help='Configuration file path')
+    parser.add_argument('--config', type=str, default='config_wuperr.json', help='Configuration file path')
     
     args = parser.parse_args()
     
     # Load configuration
     config_path = args.config
+    # Try relative path first, then absolute
+    if not os.path.exists(config_path):
+        config_path = os.path.join(os.path.dirname(__file__), args.config)
     if not os.path.exists(config_path):
         logger.error(f"Configuration file not found: {config_path}")
         sys.exit(1)

@@ -1,19 +1,27 @@
 import pandas as pd
 import numpy as np
 import os
+import json
 import pickle
 import xgboost as xgb
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix
 from sklearn.calibration import CalibrationDisplay
 
-def load_model_and_metadata(model_dir):
+def load_config():
+    """Load configuration from config file"""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    return config
+
+def load_model_and_metadata():
     """Load saved XGBoost model, scaler, and feature columns"""
-    model_path = os.path.join(model_dir, 'xgb_icu_mortality_model.json')
-    scaler_path = os.path.join(model_dir, 'xgb_feature_scaler.pkl')
-    feature_cols_path = os.path.join(model_dir, 'xgb_feature_columns.pkl')
+    config = load_config()
+    model_path = config['output_config']['model_path']
+    scaler_path = config['output_config']['scaler_path']
+    feature_cols_path = config['output_config']['feature_cols_path']
     
     # Load feature columns
     with open(feature_cols_path, 'rb') as f:
@@ -32,7 +40,6 @@ def load_model_and_metadata(model_dir):
 def prepare_aggregated_data(df, available_features):
     """
     Aggregate data by hospitalization_id, calculating min, max, and median for each feature
-    Similar to the training process in 03_02_xgbmodel.py
     """
     # Create aggregation functions
     aggregation_funcs = {}
@@ -54,30 +61,40 @@ def prepare_aggregated_data(df, available_features):
     
     return agg_df
 
-def transfer_learning(data_path, model_dir, output_dir, num_boost_round=100):
+def transfer_learning(data_path=None, output_dir=None, num_boost_round=100):
     """
     Perform transfer learning on a new hospital system dataset using XGBoost
     
     Parameters:
     -----------
-    data_path : str
-        Path to the new hospital data file (parquet format)
-    model_dir : str
-        Directory containing the original saved model and metadata
-    output_dir : str
-        Directory to save the transfer-learned model and results
+    data_path : str, optional
+        Path to the new hospital data file (parquet format). If None, uses the path from config.
+    output_dir : str, optional
+        Directory to save the transfer-learned model and results. If None, uses a default path.
     num_boost_round : int
         Number of additional boosting rounds for transfer learning
     """
+    # Load config
+    config = load_config()
+    
+    # If no data path provided, use the one from config
+    if data_path is None:
+        data_path = os.path.join(config['data_config']['preprocessing_path'], 
+                                config['data_config']['feature_file'])
+    
+    # If no output directory provided, use a default path
+    if output_dir is None:
+        output_dir = os.path.join(os.path.dirname(config['output_config']['model_path']), 'transfer_learning')
+    
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create graphs directory if it doesn't exist
-    graphs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output', 'final', 'graphs')
-    os.makedirs(graphs_dir, exist_ok=True)
+    # Create plots directory if it doesn't exist
+    plots_dir = os.path.join(output_dir, 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
     
     # Load pre-trained model and metadata
-    original_model, scaler, expected_feature_cols = load_model_and_metadata(model_dir)
+    original_model, scaler, expected_feature_cols = load_model_and_metadata()
     
     # Load new hospital data
     print(f"Loading new hospital data from {data_path}...")
@@ -206,7 +223,7 @@ def transfer_learning(data_path, model_dir, output_dir, num_boost_round=100):
         n_bins = min(5, len(np.unique(y_pred_proba)))
         disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=n_bins, name='Transfer-Learned XGBoost')
         plt.title('Calibration Plot - Transfer Learning')
-        plt.savefig(os.path.join(graphs_dir, 'xgb_transfer_learning_calibration.png'))
+        plt.savefig(os.path.join(plots_dir, 'xgb_transfer_learning_calibration.png'))
         plt.close()
         print("Calibration plot saved successfully.")
     except Exception as e:
@@ -283,11 +300,31 @@ def transfer_learning(data_path, model_dir, output_dir, num_boost_round=100):
             plt.xlabel('Weight')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(graphs_dir, 'xgb_feature_importance_comparison.png'))
+        plt.savefig(os.path.join(plots_dir, 'xgb_feature_importance_comparison.png'))
         plt.close()
         print("Feature importance comparison plot saved successfully.")
     except Exception as e:
         print(f"Warning: Could not create feature importance plot: {e}")
+    
+    # Save metrics
+    metrics = {
+        'original_model': {
+            'accuracy': float(original_accuracy),
+            'roc_auc': float(original_roc_auc)
+        },
+        'transfer_model': {
+            'accuracy': float(accuracy),
+            'roc_auc': float(roc_auc),
+            'best_iteration': transfer_model.best_iteration
+        },
+        'improvement': {
+            'accuracy': float(accuracy - original_accuracy),
+            'roc_auc': float(roc_auc - original_roc_auc)
+        }
+    }
+    
+    with open(os.path.join(output_dir, 'transfer_metrics.json'), 'w') as f:
+        json.dump(metrics, f, indent=2)
     
     return {
         'model': transfer_model,
@@ -303,30 +340,22 @@ def transfer_learning(data_path, model_dir, output_dir, num_boost_round=100):
 
 def main():
     """Main function for transfer learning"""
-    # Get paths
-    code_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.dirname(code_dir)
-    model_dir = os.path.join(project_dir, 'model')
-    output_dir = os.path.join(project_dir, 'model', 'xgb_transfer_learning')
-    
-    # For demonstration, using the original data as "new hospital data"
-    # In a real scenario, this would be data from a different hospital
-    data_path = os.path.join(project_dir, 'output', 'intermitted', 'by_event_wide_df.parquet')
+    # Get paths from config
+    config = load_config()
     
     # Check if original model exists
-    if not os.path.exists(os.path.join(model_dir, 'xgb_icu_mortality_model.json')):
-        print(f"Error: Original XGBoost model not found in {model_dir}")
+    if not os.path.exists(config['output_config']['model_path']):
+        print(f"Error: Original XGBoost model not found at {config['output_config']['model_path']}")
         return
     
     # Perform transfer learning
-    results = transfer_learning(data_path, model_dir, output_dir)
+    results = transfer_learning()
     
     if results is None:
         print("Transfer learning could not be completed.")
         return
     
     print("\nXGBoost transfer learning completed!")
-    print(f"Results saved in {output_dir}")
 
 if __name__ == "__main__":
     main()
