@@ -23,14 +23,14 @@ code/
 │   │   ├── transfer_learning.py
 │   │   ├── config.json
 │   │   └── README.md
-│   └── wuperr/                       # WUPERR federated learning
+│   └── federated/                    # Federated learning
 │       ├── sequential_train.py
 │       ├── simulate_multisite.py
 │       ├── evaluate.py
-│       ├── sequential_wuperr.py
+│       ├── sequential_federated.py
 │       ├── git_model_manager.py
 │       ├── setup_git_lfs.py
-│       ├── config_wuperr.json
+│       ├── config_federated.json
 │       └── README.md
 ├── shared/                           # Shared utilities and documentation
 │   ├── prd.md                        # Product requirements document
@@ -43,7 +43,7 @@ code/
     └── models/                       # Model-specific outputs
         ├── lstm/                     # LSTM artifacts
         ├── xgboost/                  # XGBoost artifacts
-        └── wuperr/                   # WUPERR artifacts
+        └── federated/                # Federated learning artifacts
 ```
 
 ## Workflow
@@ -75,8 +75,8 @@ python training.py
 cd models/xgboost
 python training.py
 
-# WUPERR
-cd models/wuperr
+# Federated Learning
+cd models/federated
 python simulate_multisite.py
 ```
 
@@ -93,8 +93,8 @@ python inference.py
 cd models/xgboost
 python inference.py
 
-# WUPERR
-cd models/wuperr
+# Federated Learning
+cd models/federated
 python evaluate.py
 ```
 

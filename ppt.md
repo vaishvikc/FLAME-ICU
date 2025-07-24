@@ -275,7 +275,7 @@ pip install -r requirements.txt
 #### Step 1: Data Preparation (Automated)
 ```bash
 # Split data across sites
-python code/models/wuperr/simulate_multisite.py \
+python code/data/simulate_multisite.py \
     --data_path output/intermitted/by_hourly_wide_df.parquet \
     --num_sites 8 \
     --setup_only
@@ -312,15 +312,15 @@ python code/models/lstm/weight_average.py --sites all
 #### Step 5: WUPERR Federated Learning
 ```bash
 # Run sequential federated learning
-python code/models/wuperr/simulate_multisite.py \
+python code/models/federated/simulate_multisite.py \
     --num_rounds 3 \
-    --config code/models/wuperr/config_wuperr.json
+    --config code/models/federated/config_federated.json
 ```
 
 #### Step 6: Final Evaluation
 ```bash
 # Comprehensive evaluation
-python code/models/wuperr/evaluate.py \
+python code/models/federated/evaluate.py \
     --test_data output/test/global_test_set.parquet
 ```
 
@@ -343,12 +343,12 @@ output/
 │   │   ├── base_model.pt
 │   │   ├── site_*/
 │   │   └── averaged/
-│   └── wuperr/
+│   └── federated/
 │       └── federated_final.pt
 ├── results/
 │   ├── site_statistics.csv
 │   ├── performance_metrics.json
-│   └── wuperr_evaluation_report.json
+│   └── federated_evaluation_report.json
 └── final/graphs/
     ├── model_comparisons.png
     ├── site_performance_heatmap.png
@@ -538,11 +538,11 @@ python code/models/lstm/weight_average.py \
 #### Phase 4: WUPERR Federated Learning (Method 4)
 ```bash
 # Sequential federated learning with WUPERR
-python code/models/wuperr/sequential_train.py \
+python code/models/federated/sequential_train.py \
     --num_rounds 3 \
     --sites "1,2,3,4,5,6,7,8" \
     --model_type "both" \
-    --config code/models/wuperr/config_wuperr.json
+    --config code/models/federated/config_federated.json
 ```
 
 ### Comprehensive Evaluation Matrix
@@ -614,12 +614,12 @@ python scripts/train_federated_ensemble.py
 
 # Phase 4: WUPERR Federated Learning
 echo "Phase 4: WUPERR Training..."
-python scripts/train_wuperr.py --rounds 3
+python scripts/train_federated.py --rounds 3
 
 # Phase 5: Cross-Evaluation
 echo "Phase 5: Cross-Site Evaluation..."
 python scripts/cross_site_evaluation.py \
-    --methods "site_specific,transfer,ensemble,wuperr" \
+    --methods "site_specific,transfer,ensemble,federated" \
     --sites "1,2,3,4,5,6,7,8" \
     --output_dir "results/comparison/"
 
@@ -667,7 +667,7 @@ sns.heatmap(performance_matrix,
 #### 2. Cross-Site Generalization Plot
 ```python
 # Box plot showing performance distribution across sites for each method
-plt.boxplot([site_specific_scores, transfer_scores, ensemble_scores, wuperr_scores])
+plt.boxplot([site_specific_scores, transfer_scores, ensemble_scores, federated_scores])
 ```
 
 #### 3. Training Data Size vs Performance
@@ -689,7 +689,7 @@ plt.scatter(data_sizes, performances, c=methods)
 
 ```bash
 # Step 1: Setup and Data Preparation
-python code/models/wuperr/simulate_multisite.py --setup_only
+python code/data/simulate_multisite.py --setup_only
 
 # Step 2: Run All Methods in Parallel
 ./scripts/comprehensive_evaluation.sh
