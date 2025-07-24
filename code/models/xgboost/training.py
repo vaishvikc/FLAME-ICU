@@ -20,10 +20,46 @@ def load_config():
         config = json.load(f)
     return config
 
+def load_preprocessing_config():
+    """Load preprocessing configuration to get site name"""
+    preprocessing_config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        'preprocessing', 'config_demo.json'
+    )
+    try:
+        with open(preprocessing_config_path, 'r') as f:
+            preprocessing_config = json.load(f)
+        return preprocessing_config
+    except FileNotFoundError:
+        print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
+        return {"site": "unknown"}
+
 def train_xgboost_model():
     """Train XGBoost model for ICU mortality prediction"""
     # Load configuration
     config = load_config()
+    
+    # Load preprocessing config to get site name
+    preprocessing_config = load_preprocessing_config()
+    site_name = preprocessing_config.get('site', 'unknown')
+    print(f"Training model for site: {site_name}")
+    
+    # Make a copy of output config to modify
+    output_config = config['output_config'].copy()
+    
+    # Update output paths with site name
+    for key in output_config:
+        if isinstance(output_config[key], str):
+            # Replace the model name with site-specific name
+            output_config[key] = output_config[key].replace(
+                'xgb_icu_mortality_model', f'xgb_{site_name}_icu_mortality_model'
+            ).replace(
+                'xgb_feature_scaler', f'xgb_{site_name}_feature_scaler'
+            ).replace(
+                'xgb_feature_columns', f'xgb_{site_name}_feature_columns'
+            ).replace(
+                'metrics.json', f'{site_name}_metrics.json'
+            )
     
     # Get paths from config
     preprocessing_path = config['data_config']['preprocessing_path']
@@ -31,8 +67,8 @@ def train_xgboost_model():
     selected_features = config['data_config']['selected_features']
     
     # Create output directories
-    output_model_dir = os.path.dirname(config['output_config']['model_path'])
-    plots_dir = config['output_config']['plots_dir']
+    output_model_dir = os.path.dirname(output_config['model_path'])
+    plots_dir = output_config['plots_dir']
     os.makedirs(output_model_dir, exist_ok=True)
     os.makedirs(plots_dir, exist_ok=True)
     
@@ -189,7 +225,7 @@ def train_xgboost_model():
         'best_iteration': model.best_iteration
     }
     
-    with open(config['output_config']['metrics_path'], 'w') as f:
+    with open(output_config['metrics_path'], 'w') as f:
         json.dump(metrics, f, indent=2)
 
     # Feature importance visualization with error handling
@@ -201,7 +237,7 @@ def train_xgboost_model():
             plt.figure(figsize=(10, 6))
             xgb.plot_importance(model, max_num_features=20, importance_type=importance_type)
             plt.title('XGBoost Feature Importance (Weight)')
-            plt.savefig(os.path.join(plots_dir, 'xgb_feature_importance.png'))
+            plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_feature_importance.png'))
             plt.close()
             print("Feature importance plot saved successfully.")
         else:
@@ -223,7 +259,7 @@ def train_xgboost_model():
         plt.figure(figsize=(10, 6))
         disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=n_bins, name='XGBoost')
         plt.title('Calibration Plot')
-        plt.savefig(os.path.join(plots_dir, 'xgb_calibration_plot.png'))
+        plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_calibration_plot.png'))
         plt.close()
         print("Calibration plot saved successfully.")
     except Exception as e:
@@ -231,20 +267,20 @@ def train_xgboost_model():
         print("Skipping calibration plot.")
 
     # Save the trained model
-    model_path = config['output_config']['model_path']
+    model_path = output_config['model_path']
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     model.save_model(model_path)
     print(f"Model saved to {model_path}")
 
     # Save the scaler for preprocessing new data
-    scaler_path = config['output_config']['scaler_path']
+    scaler_path = output_config['scaler_path']
     os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
     with open(scaler_path, 'wb') as f:
         pickle.dump(scaler, f)
     print(f"Scaler saved to {scaler_path}")
 
     # Save feature column names for inference
-    feature_cols_path = config['output_config']['feature_cols_path']
+    feature_cols_path = output_config['feature_cols_path']
     os.makedirs(os.path.dirname(feature_cols_path), exist_ok=True)
     with open(feature_cols_path, 'wb') as f:
         pickle.dump(list(X.columns), f)

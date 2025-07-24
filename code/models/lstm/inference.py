@@ -94,12 +94,43 @@ def prepare_sequences(df, feature_cols, sequence_length=24):
     
     return sequences, targets
 
+def load_preprocessing_config():
+    """Load preprocessing configuration to get site name"""
+    preprocessing_config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        'preprocessing', 'config_demo.json'
+    )
+    try:
+        with open(preprocessing_config_path, 'r') as f:
+            preprocessing_config = json.load(f)
+        return preprocessing_config
+    except FileNotFoundError:
+        print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
+        return {"site": "unknown"}
+
 def load_model_and_metadata():
     """Load saved model, scaler, and feature columns"""
     config = load_config()
-    output_config = config['output_config']
+    output_config = config['output_config'].copy()
     model_params = config['model_params']
     data_config = config['data_config']
+    
+    # Load preprocessing config to get site name
+    preprocessing_config = load_preprocessing_config()
+    site_name = preprocessing_config.get('site', 'unknown')
+    print(f"Loading model for site: {site_name}")
+    
+    # Update output paths with site name
+    for key in output_config:
+        if isinstance(output_config[key], str):
+            # Replace the model name with site-specific name
+            output_config[key] = output_config[key].replace(
+                'lstm_icu_mortality_model', f'lstm_{site_name}_icu_mortality_model'
+            ).replace(
+                'feature_scaler', f'{site_name}_feature_scaler'
+            ).replace(
+                'feature_columns', f'{site_name}_feature_columns'
+            )
     
     model_path = output_config['model_path']
     scaler_path = output_config['scaler_path']

@@ -13,12 +13,45 @@ def load_config():
         config = json.load(f)
     return config
 
+def load_preprocessing_config():
+    """Load preprocessing configuration to get site name"""
+    preprocessing_config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        'preprocessing', 'config_demo.json'
+    )
+    try:
+        with open(preprocessing_config_path, 'r') as f:
+            preprocessing_config = json.load(f)
+        return preprocessing_config
+    except FileNotFoundError:
+        print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
+        return {"site": "unknown"}
+
 def load_model_and_metadata():
     """Load saved XGBoost model, scaler, and feature columns"""
     config = load_config()
-    model_path = config['output_config']['model_path']
-    scaler_path = config['output_config']['scaler_path']
-    feature_cols_path = config['output_config']['feature_cols_path']
+    output_config = config['output_config'].copy()
+    
+    # Load preprocessing config to get site name
+    preprocessing_config = load_preprocessing_config()
+    site_name = preprocessing_config.get('site', 'unknown')
+    print(f"Loading model for site: {site_name}")
+    
+    # Update output paths with site name
+    for key in output_config:
+        if isinstance(output_config[key], str):
+            # Replace the model name with site-specific name
+            output_config[key] = output_config[key].replace(
+                'xgb_icu_mortality_model', f'xgb_{site_name}_icu_mortality_model'
+            ).replace(
+                'xgb_feature_scaler', f'xgb_{site_name}_feature_scaler'
+            ).replace(
+                'xgb_feature_columns', f'xgb_{site_name}_feature_columns'
+            )
+    
+    model_path = output_config['model_path']
+    scaler_path = output_config['scaler_path']
+    feature_cols_path = output_config['feature_cols_path']
     
     # Load feature columns
     with open(feature_cols_path, 'rb') as f:
@@ -178,14 +211,28 @@ def predict_mortality(data_path=None):
     
     return predictions
 
+def get_site_specific_model_path():
+    """Get the site-specific model path"""
+    config = load_config()
+    output_config = config['output_config'].copy()
+    
+    # Load preprocessing config to get site name
+    preprocessing_config = load_preprocessing_config()
+    site_name = preprocessing_config.get('site', 'unknown')
+    
+    # Update model path with site name
+    model_path = output_config['model_path'].replace(
+        'xgb_icu_mortality_model', f'xgb_{site_name}_icu_mortality_model'
+    )
+    
+    return model_path
+
 def main():
     """Main function to run inference"""
-    # Get paths
-    config = load_config()
-    
     # Check if model exists
-    if not os.path.exists(config['output_config']['model_path']):
-        print(f"Error: XGBoost model file not found at {config['output_config']['model_path']}")
+    model_path = get_site_specific_model_path()
+    if not os.path.exists(model_path):
+        print(f"Error: XGBoost model file not found at {model_path}")
         return
     
     # Make predictions

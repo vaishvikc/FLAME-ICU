@@ -25,6 +25,20 @@ def load_config():
         config = json.load(f)
     return config
 
+# Load preprocessing configuration to get site name
+def load_preprocessing_config():
+    preprocessing_config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        'preprocessing', 'config_demo.json'
+    )
+    try:
+        with open(preprocessing_config_path, 'r') as f:
+            preprocessing_config = json.load(f)
+        return preprocessing_config
+    except FileNotFoundError:
+        print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
+        return {"site": "unknown"}
+
 # Define LSTM model using PyTorch
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_size1=64, hidden_size2=32, output_size=1, dropout_rate=0.2):
@@ -113,7 +127,26 @@ def train_lstm_model():
     model_params = config['model_params']
     training_config = config['training_config']
     data_config = config['data_config']
-    output_config = config['output_config']
+    output_config = config['output_config'].copy()  # Make a copy to modify
+    
+    # Load preprocessing config to get site name
+    preprocessing_config = load_preprocessing_config()
+    site_name = preprocessing_config.get('site', 'unknown')
+    print(f"Training model for site: {site_name}")
+    
+    # Update output paths with site name
+    for key in output_config:
+        if isinstance(output_config[key], str):
+            # Replace the model name with site-specific name
+            output_config[key] = output_config[key].replace(
+                'lstm_icu_mortality_model', f'lstm_{site_name}_icu_mortality_model'
+            ).replace(
+                'feature_scaler', f'{site_name}_feature_scaler'
+            ).replace(
+                'feature_columns', f'{site_name}_feature_columns'
+            ).replace(
+                'metrics.json', f'{site_name}_metrics.json'
+            )
     
     # Create output directories
     os.makedirs(os.path.dirname(output_config['model_path']), exist_ok=True)
@@ -373,14 +406,14 @@ def train_lstm_model():
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy')
     plt.legend()
-    plt.savefig(os.path.join(output_config['plots_dir'], 'lstm_training_history.png'))
+    plt.savefig(os.path.join(output_config['plots_dir'], f'lstm_{site_name}_training_history.png'))
     plt.close()
 
     # Create calibration plot
     plt.figure(figsize=(10, 6))
     disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=10, name='LSTM')
     plt.title('Calibration Plot')
-    plt.savefig(os.path.join(output_config['plots_dir'], 'lstm_calibration_plot.png'))
+    plt.savefig(os.path.join(output_config['plots_dir'], f'lstm_{site_name}_calibration_plot.png'))
     plt.close()
 
     # Save the trained model
