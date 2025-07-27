@@ -5,10 +5,11 @@ import os
 import json
 import pickle
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
+# Removed train_test_split import - using pre-split data
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix
-from sklearn.calibration import CalibrationDisplay
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix, average_precision_score, brier_score_loss
+from sklearn.calibration import calibration_curve
+import seaborn as sns
 
 # Set random seeds for reproducibility
 np.random.seed(42)
@@ -34,8 +35,26 @@ def load_preprocessing_config():
         print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
         return {"site": "unknown"}
 
+def expected_calibration_error(y_true, y_prob, n_bins=10):
+    """Calculate Expected Calibration Error (ECE)"""
+    bin_boundaries = np.linspace(0, 1, n_bins + 1)
+    bin_lowers = bin_boundaries[:-1]
+    bin_uppers = bin_boundaries[1:]
+    
+    ece = 0
+    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
+        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
+        prop_in_bin = in_bin.mean()
+        
+        if prop_in_bin > 0:
+            accuracy_in_bin = y_true[in_bin].mean()
+            avg_confidence_in_bin = y_prob[in_bin].mean()
+            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+    
+    return ece
+
 def train_xgboost_model():
-    """Train XGBoost model for ICU mortality prediction"""
+    """Train XGBoost model for ICU mortality prediction using pre-split data"""
     # Load configuration
     config = load_config()
     
@@ -61,73 +80,35 @@ def train_xgboost_model():
                 'metrics.json', f'{site_name}_metrics.json'
             )
     
-    # Get paths from config
-    preprocessing_path = config['data_config']['preprocessing_path']
-    feature_file = config['data_config']['feature_file']
-    selected_features = config['data_config']['selected_features']
-    
     # Create output directories
     output_model_dir = os.path.dirname(output_config['model_path'])
     plots_dir = output_config['plots_dir']
     os.makedirs(output_model_dir, exist_ok=True)
     os.makedirs(plots_dir, exist_ok=True)
     
-    # Load data
-    print("Loading data...")
-    data_path = os.path.join(preprocessing_path, feature_file)
-    df = pd.read_parquet(data_path)
-    print(f"Data shape: {df.shape}")
-    print(f"Number of unique hospitalization_ids: {df['hospitalization_id'].nunique()}")
-
-    # Check which features from our selection are available in the dataframe
-    available_features = [col for col in selected_features if col in df.columns]
-    missing_features = [col for col in selected_features if col not in df.columns]
-    if missing_features:
-        print(f"Warning: The following requested features are not in the dataset: {missing_features}")
-
-    print(f"Available features: {available_features}")
-
-    # Add hospitalization_id and disposition to the list of columns we need
-    required_cols = ['hospitalization_id', 'disposition'] + available_features
-    df_filtered = df[required_cols].copy()
-
-    print(f"Filtered data shape: {df_filtered.shape}")
-    print(f"Class distribution: \n{df_filtered['disposition'].value_counts()}")
-    for label, count in df_filtered['disposition'].value_counts().items():
-        print(f"Class {label}: {count} ({100 * count / len(df_filtered):.2f}%)")
-
-    # Aggregate data by hospitalization_id, calculating min, max, and median for each feature
-    print("Aggregating data by hospitalization_id...")
-    aggregation_funcs = {}
-    for feature in available_features:
-        aggregation_funcs[feature] = ['min', 'max', 'median']
-
-    # Add disposition to the aggregation (taking the first value as it should be the same for all rows of the same hospitalization)
-    aggregation_funcs['disposition'] = 'first'
-
-    # Perform the aggregation
-    agg_df = df_filtered.groupby('hospitalization_id').agg(aggregation_funcs)
-
-    # Flatten the multi-level column index
-    agg_df.columns = ['_'.join(col).strip() for col in agg_df.columns.values]
-
-    # Reset index to make hospitalization_id a column again
-    agg_df = agg_df.reset_index()
-
-    print(f"Aggregated data shape: {agg_df.shape}")
-    print(f"Number of unique hospitalization_ids after aggregation: {agg_df['hospitalization_id'].nunique()}")
-
-    # Prepare features and target
-    X = agg_df.drop(['hospitalization_id', 'disposition_first'], axis=1)
-    y = agg_df['disposition_first']
-
-    print(f"X shape: {X.shape}")
-    print(f"y shape: {y.shape}")
-
-    # Split data into train and test sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    print(f"Training set shape: {X_train.shape}")
-    print(f"Test set shape: {X_test.shape}")
+    # Load pre-split data
+    print("Loading pre-split data...")
+    train_file = config['data_split']['train_file']
+    test_file = config['data_split']['test_file']
+    
+    print(f"Loading training data from: {train_file}")
+    train_df = pd.read_parquet(train_file)
+    print(f"Training data shape: {train_df.shape}")
+    
+    print(f"Loading test data from: {test_file}")
+    test_df = pd.read_parquet(test_file)
+    print(f"Test data shape: {test_df.shape}")
+    
+    # Prepare features and targets
+    X_train = train_df.drop(['hospitalization_id', 'disposition'], axis=1)
+    y_train = train_df['disposition']
+    X_test = test_df.drop(['hospitalization_id', 'disposition'], axis=1)
+    y_test = test_df['disposition']
+    
+    print(f"Training set: {X_train.shape} features, {len(y_train)} patients")
+    print(f"Test set: {X_test.shape} features, {len(y_test)} patients")
+    print(f"Training mortality rate: {y_train.mean():.3f}")
+    print(f"Test mortality rate: {y_test.mean():.3f}")
 
     # Scale features and handle NaN values
     print("Checking for missing values before scaling...")
@@ -204,12 +185,18 @@ def train_xgboost_model():
     # Use the standard threshold for the main evaluation
     y_pred = (y_pred_proba > 0.5).astype(int)
 
-    # Calculate metrics
+    # Calculate comprehensive metrics
     accuracy = accuracy_score(y_test, y_pred)
     roc_auc = roc_auc_score(y_test, y_pred_proba)
+    pr_auc = average_precision_score(y_test, y_pred_proba)
+    brier_score = brier_score_loss(y_test, y_pred_proba)
+    ece = expected_calibration_error(y_test, y_pred_proba)
 
     print(f"Accuracy: {accuracy:.4f}")
     print(f"ROC AUC: {roc_auc:.4f}")
+    print(f"PR AUC: {pr_auc:.4f}")
+    print(f"Brier Score: {brier_score:.4f}")
+    print(f"Expected Calibration Error: {ece:.4f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
@@ -217,10 +204,13 @@ def train_xgboost_model():
     cm = confusion_matrix(y_test, y_pred)
     print(cm)
 
-    # Save metrics
+    # Save comprehensive metrics
     metrics = {
         'accuracy': float(accuracy),
         'roc_auc': float(roc_auc),
+        'pr_auc': float(pr_auc),
+        'brier_score': float(brier_score),
+        'expected_calibration_error': float(ece),
         'confusion_matrix': cm.tolist(),
         'best_iteration': model.best_iteration
     }
@@ -228,43 +218,138 @@ def train_xgboost_model():
     with open(output_config['metrics_path'], 'w') as f:
         json.dump(metrics, f, indent=2)
 
-    # Feature importance visualization with error handling
+    # Enhanced feature importance visualization with original column names
     try:
-        importance_type = 'weight'
-        importance = model.get_score(importance_type=importance_type)
+        # Get feature importance with original names
+        importance_types = ['weight', 'gain', 'cover']
         
-        if importance:
-            plt.figure(figsize=(10, 6))
-            xgb.plot_importance(model, max_num_features=20, importance_type=importance_type)
-            plt.title('XGBoost Feature Importance (Weight)')
-            plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_feature_importance.png'))
-            plt.close()
-            print("Feature importance plot saved successfully.")
-        else:
-            print("Warning: No feature importance could be calculated. Skipping plot.")
+        for importance_type in importance_types:
+            importance = model.get_score(importance_type=importance_type)
             
-            # Alternative approach: print feature names directly
-            print("\nFeatures used in model:")
-            for i, col in enumerate(X.columns):
-                print(f"{i}: {col}")
+            if importance:
+                # Map XGBoost feature names back to original column names
+                feature_names = list(X_train.columns)
+                mapped_importance = {}
                 
-    except ValueError as e:
-        print(f"Warning: Could not plot feature importance: {e}")
-        print("Skipping feature importance plot.")
-
-    # Create calibration plot with proper error handling
-    try:
-        # Use fewer bins due to small dataset
-        n_bins = min(5, len(np.unique(y_pred_proba)))
-        plt.figure(figsize=(10, 6))
-        disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=n_bins, name='XGBoost')
-        plt.title('Calibration Plot')
-        plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_calibration_plot.png'))
-        plt.close()
-        print("Calibration plot saved successfully.")
+                for xgb_feature, score in importance.items():
+                    # XGBoost uses f0, f1, f2, ... for feature names
+                    if xgb_feature.startswith('f'):
+                        try:
+                            feature_idx = int(xgb_feature[1:])
+                            if feature_idx < len(feature_names):
+                                original_name = feature_names[feature_idx]
+                                mapped_importance[original_name] = score
+                        except (ValueError, IndexError):
+                            mapped_importance[xgb_feature] = score
+                    else:
+                        mapped_importance[xgb_feature] = score
+                
+                # Sort by importance and get top 20
+                sorted_importance = sorted(mapped_importance.items(), key=lambda x: x[1], reverse=True)[:20]
+                
+                if sorted_importance:
+                    # Create horizontal bar plot
+                    plt.figure(figsize=(12, 8))
+                    features, scores = zip(*sorted_importance)
+                    y_pos = np.arange(len(features))
+                    
+                    plt.barh(y_pos, scores)
+                    plt.yticks(y_pos, features)
+                    plt.xlabel(f'Feature Importance ({importance_type.title()})')
+                    plt.title(f'Top 20 Features - XGBoost Feature Importance ({importance_type.title()})')
+                    plt.gca().invert_yaxis()
+                    plt.tight_layout()
+                    
+                    # Save plot
+                    plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_feature_importance_{importance_type}.png'), 
+                               dpi=300, bbox_inches='tight')
+                    plt.close()
+                    print(f"Feature importance plot ({importance_type}) saved successfully.")
+                    
+                    # Print top 10 features
+                    print(f"\nTop 10 Features ({importance_type}):")
+                    for i, (feature, score) in enumerate(sorted_importance[:10], 1):
+                        print(f"{i:2d}. {feature}: {score:.3f}")
+            else:
+                print(f"Warning: No feature importance ({importance_type}) could be calculated.")
+                
     except Exception as e:
-        print(f"Warning: Could not create calibration plot: {e}")
-        print("Skipping calibration plot.")
+        print(f"Warning: Could not create feature importance plots: {e}")
+        print("Printing feature names for reference:")
+        for i, col in enumerate(X_train.columns[:20]):
+            print(f"{i:2d}: {col}")
+
+    # Enhanced calibration analysis
+    try:
+        print("\n=== Calibration Analysis ===")
+        
+        # Create reliability diagram
+        plt.figure(figsize=(15, 5))
+        
+        # Subplot 1: Calibration curve (reliability diagram)
+        plt.subplot(1, 3, 1)
+        fraction_of_positives, mean_predicted_value = calibration_curve(
+            y_test, y_pred_proba, n_bins=10
+        )
+        
+        plt.plot(mean_predicted_value, fraction_of_positives, "s-", label=f"XGBoost (ECE={ece:.4f})")
+        plt.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+        plt.xlabel("Mean Predicted Probability")
+        plt.ylabel("Fraction of Positives")
+        plt.title("Reliability Diagram")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Subplot 2: Prediction histogram
+        plt.subplot(1, 3, 2)
+        plt.hist(y_pred_proba[y_test == 0], bins=20, alpha=0.7, label='Survived', density=True)
+        plt.hist(y_pred_proba[y_test == 1], bins=20, alpha=0.7, label='Died', density=True)
+        plt.xlabel("Predicted Probability")
+        plt.ylabel("Density")
+        plt.title("Prediction Distribution")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Subplot 3: Brier score decomposition
+        plt.subplot(1, 3, 3)
+        # Calculate Brier score components
+        reliability = np.sum((fraction_of_positives - mean_predicted_value) ** 2 * 
+                           np.histogram(y_pred_proba, bins=10)[0] / len(y_pred_proba))
+        resolution = np.sum((fraction_of_positives - np.mean(y_test)) ** 2 * 
+                          np.histogram(y_pred_proba, bins=10)[0] / len(y_pred_proba))
+        uncertainty = np.mean(y_test) * (1 - np.mean(y_test))
+        
+        components = ['Reliability', 'Resolution', 'Uncertainty', 'Brier Score']
+        values = [reliability, -resolution, uncertainty, brier_score]  # Resolution is subtracted in Brier
+        colors = ['red', 'green', 'blue', 'orange']
+        
+        bars = plt.bar(components, values, color=colors, alpha=0.7)
+        plt.title("Brier Score Decomposition")
+        plt.ylabel("Score")
+        plt.xticks(rotation=45)
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, values):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001, 
+                    f'{value:.4f}', ha='center', va='bottom', fontsize=9)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_calibration_analysis.png'), 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        print("Enhanced calibration analysis saved successfully.")
+        
+        # Print calibration summary
+        print(f"Calibration Summary:")
+        print(f"  Expected Calibration Error (ECE): {ece:.4f}")
+        print(f"  Brier Score: {brier_score:.4f}")
+        print(f"  Reliability: {reliability:.4f}")
+        print(f"  Resolution: {resolution:.4f}")
+        print(f"  Uncertainty: {uncertainty:.4f}")
+        
+    except Exception as e:
+        print(f"Warning: Could not create calibration analysis: {e}")
+        print("Skipping calibration analysis.")
 
     # Save the trained model
     model_path = output_config['model_path']
@@ -283,12 +368,12 @@ def train_xgboost_model():
     feature_cols_path = output_config['feature_cols_path']
     os.makedirs(os.path.dirname(feature_cols_path), exist_ok=True)
     with open(feature_cols_path, 'wb') as f:
-        pickle.dump(list(X.columns), f)
+        pickle.dump(list(X_train.columns), f)
     print(f"Feature columns saved to {feature_cols_path}")
 
     print(f"Evaluation completed. Results saved in {plots_dir}")
     
-    return model, scaler, list(X.columns)
+    return model, scaler, list(X_train.columns)
 
 def main():
     """Main function to train the XGBoost model"""

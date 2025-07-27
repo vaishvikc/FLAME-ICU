@@ -4,10 +4,9 @@ import matplotlib.pyplot as plt
 import os
 import json
 import pickle
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix
-from sklearn.calibration import CalibrationDisplay
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix, average_precision_score, brier_score_loss
+from sklearn.calibration import calibration_curve
 
 import torch
 import torch.nn as nn
@@ -39,72 +38,79 @@ def load_preprocessing_config():
         print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
         return {"site": "unknown"}
 
-# Define LSTM model using PyTorch
+# Define LSTM model using PyTorch with flexible architecture
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size1=64, hidden_size2=32, output_size=1, dropout_rate=0.2):
+    def __init__(self, input_size, hidden_size1=64, hidden_size2=32, num_layers=2, output_size=1, dropout_rate=0.2):
         super(LSTMModel, self).__init__()
-        self.lstm1 = nn.LSTM(input_size, hidden_size1, batch_first=True)
-        self.dropout1 = nn.Dropout(dropout_rate)
-        self.lstm2 = nn.LSTM(hidden_size1, hidden_size2, batch_first=True)
-        self.dropout2 = nn.Dropout(dropout_rate)
-        self.fc1 = nn.Linear(hidden_size2, 16)
+        self.num_layers = num_layers
+        
+        if num_layers == 1:
+            # Single LSTM layer
+            self.lstm1 = nn.LSTM(input_size, hidden_size1, batch_first=True)
+            self.dropout1 = nn.Dropout(dropout_rate)
+            self.fc1 = nn.Linear(hidden_size1, 16)
+        else:
+            # Two LSTM layers
+            self.lstm1 = nn.LSTM(input_size, hidden_size1, batch_first=True)
+            self.dropout1 = nn.Dropout(dropout_rate)
+            self.lstm2 = nn.LSTM(hidden_size1, hidden_size2, batch_first=True)
+            self.dropout2 = nn.Dropout(dropout_rate)
+            self.fc1 = nn.Linear(hidden_size2, 16)
+        
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(16, output_size)
-        self.sigmoid = nn.Sigmoid()
         
     def forward(self, x):
-        # First LSTM layer - output is (batch_size, seq_len, hidden_size1)
+        # First LSTM layer
         x, _ = self.lstm1(x)
         x = self.dropout1(x)
-        # Second LSTM layer - we only need the output from the last time step
-        # output is (batch_size, seq_len, hidden_size2)
-        x, _ = self.lstm2(x)
-        # Get the last time step and apply dropout
-        x = self.dropout2(x[:, -1, :])  # Shape becomes (batch_size, hidden_size2)
+        
+        if self.num_layers == 2:
+            # Second LSTM layer
+            x, _ = self.lstm2(x)
+            x = self.dropout2(x)
+        
+        # Get the last time step
+        x = x[:, -1, :]
+        
         # Dense layers
         x = self.relu(self.fc1(x))
-        # Raw logits (no sigmoid) for BCEWithLogitsLoss
         x = self.fc2(x)
         return x
 
-def prepare_sequences(df, feature_cols, sequence_length=24):
-    """
-    Transform the data into sequences for each hospitalization_id
-    Apply padding for hospitalization_ids with fewer than sequence_length hours
-    Handle missing values by filling with zeros
-    """
-    # Dictionary to store sequences and targets
-    sequences = {}
-    targets = {}
+def expected_calibration_error(y_true, y_prob, n_bins=10):
+    """Calculate Expected Calibration Error (ECE)"""
+    bin_boundaries = np.linspace(0, 1, n_bins + 1)
+    bin_lowers = bin_boundaries[:-1]
+    bin_uppers = bin_boundaries[1:]
     
-    # Loop through each hospitalization_id
-    for hosp_id, group in df.groupby('hospitalization_id'):
-        # Sort by hour
-        group = group.sort_values('nth_hour')
+    ece = 0
+    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
+        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
+        prop_in_bin = in_bin.mean()
         
-        # Get the target (same for all rows of the same hospitalization_id)
-        target = group['disposition'].iloc[0]
-        
-        # Create sequence from features
-        seq = group[feature_cols].values
-        
-        # Handle NaN values by replacing with zeros
-        seq = np.nan_to_num(seq, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        # Pad if needed (if less than sequence_length hours)
-        if len(seq) < sequence_length:
-            # Create padding (zeros)
-            padding = np.zeros((sequence_length - len(seq), len(feature_cols)))
-            seq = np.vstack([seq, padding])
-        elif len(seq) > sequence_length:
-            # Truncate if more than sequence_length hours
-            seq = seq[:sequence_length]
-        
-        # Store sequence and target
-        sequences[hosp_id] = seq
-        targets[hosp_id] = target
+        if prop_in_bin > 0:
+            accuracy_in_bin = y_true[in_bin].mean()
+            avg_confidence_in_bin = y_prob[in_bin].mean()
+            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
     
-    return sequences, targets
+    return ece
+
+def load_presplit_lstm_data():
+    """Load pre-split LSTM data"""
+    config = load_config()
+    
+    # Load training data
+    train_file = config['data_split']['train_file']
+    with open(train_file, 'rb') as f:
+        train_data = pickle.load(f)
+    
+    # Load test data
+    test_file = config['data_split']['test_file']
+    with open(test_file, 'rb') as f:
+        test_data = pickle.load(f)
+    
+    return train_data, test_data
 
 # Initialize weights properly
 def init_weights(m):
@@ -122,17 +128,17 @@ def init_weights(m):
             m.bias.data.fill_(0)
 
 def train_lstm_model():
+    """Train LSTM model for ICU mortality prediction using pre-split data"""
     # Load configuration
     config = load_config()
     model_params = config['model_params']
     training_config = config['training_config']
-    data_config = config['data_config']
     output_config = config['output_config'].copy()  # Make a copy to modify
     
     # Load preprocessing config to get site name
     preprocessing_config = load_preprocessing_config()
     site_name = preprocessing_config.get('site', 'unknown')
-    print(f"Training model for site: {site_name}")
+    print(f"Training LSTM model for site: {site_name}")
     
     # Update output paths with site name
     for key in output_config:
@@ -152,42 +158,23 @@ def train_lstm_model():
     os.makedirs(os.path.dirname(output_config['model_path']), exist_ok=True)
     os.makedirs(output_config['plots_dir'], exist_ok=True)
     
-    # Load data
-    print("Loading data...")
-    data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
-                            data_config['preprocessing_path'], 
-                            data_config['feature_file'])
+    # Load pre-split data
+    print("Loading pre-split data...")
+    train_data, test_data = load_presplit_lstm_data()
     
-    df = pd.read_parquet(data_path)
-    print(f"Data shape: {df.shape}")
-    print(f"Number of unique hospitalization_ids: {df['hospitalization_id'].nunique()}")
-
-    # Extract relevant columns (all _max and _min columns, plus hospitalization_id and disposition)
-    max_min_cols = [col for col in df.columns if '_max' in col or '_min' in col]
-    required_cols = ['hospitalization_id', 'disposition', 'nth_hour'] + max_min_cols
-    df_filtered = df[required_cols]
-
-    print(f"Filtered data shape: {df_filtered.shape}")
-    print(f"Class distribution: \n{df_filtered['disposition'].value_counts()}")
-    for label, count in df_filtered['disposition'].value_counts().items():
-        print(f"Class {label}: {count} ({100 * count / len(df_filtered):.2f}%)")
-
-    # Group by hospitalization_id and create sequences
-    print("Preparing sequences...")
-    feature_cols = max_min_cols
-    sequences, targets = prepare_sequences(df_filtered, feature_cols, data_config['sequence_length'])
-
-    # Convert to numpy arrays for modeling
-    X = np.array(list(sequences.values()))
-    y = np.array(list(targets.values()))
-
-    print(f"X shape: {X.shape}")
-    print(f"y shape: {y.shape}")
-
-    # Split data into train and test sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    X_train = train_data['X']
+    y_train = train_data['y']
+    feature_cols = train_data['feature_cols']
+    
+    X_test = test_data['X']
+    y_test = test_data['y']
+    
     print(f"Training set shape: {X_train.shape}")
     print(f"Test set shape: {X_test.shape}")
+    print(f"Training mortality rate: {y_train.mean():.3f}")
+    print(f"Test mortality rate: {y_test.mean():.3f}")
+    print(f"Number of features per timestep: {len(feature_cols)}")
+    print(f"Sequence length: {X_train.shape[1]}")
 
     # Normalize features
     # We need to reshape for the scaler, then reshape back
@@ -218,11 +205,13 @@ def train_lstm_model():
     train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=batch_size)
 
-    # Initialize model
+    # Initialize model with optimized architecture
+    num_layers = config.get('optimization_results', {}).get('num_layers', 2)
     model = LSTMModel(
         input_size=n_features,
         hidden_size1=model_params['hidden_size1'],
         hidden_size2=model_params['hidden_size2'],
+        num_layers=num_layers,
         dropout_rate=model_params['dropout_rate']
     )
 
@@ -376,12 +365,18 @@ def train_lstm_model():
     y_pred_proba = np.nan_to_num(y_pred_proba, nan=0.5)
     y_pred = (y_pred_proba > 0.5).astype(int)
 
-    # Calculate metrics
+    # Calculate comprehensive metrics
     accuracy = accuracy_score(y_test, y_pred)
     roc_auc = roc_auc_score(y_test, y_pred_proba)
+    pr_auc = average_precision_score(y_test, y_pred_proba)
+    brier_score = brier_score_loss(y_test, y_pred_proba)
+    ece = expected_calibration_error(y_test, y_pred_proba)
 
     print(f"Accuracy: {accuracy:.4f}")
     print(f"ROC AUC: {roc_auc:.4f}")
+    print(f"PR AUC: {pr_auc:.4f}")
+    print(f"Brier Score: {brier_score:.4f}")
+    print(f"Expected Calibration Error: {ece:.4f}")
     print("Classification Report:")
     print(classification_report(y_test, y_pred))
 
@@ -409,12 +404,76 @@ def train_lstm_model():
     plt.savefig(os.path.join(output_config['plots_dir'], f'lstm_{site_name}_training_history.png'))
     plt.close()
 
-    # Create calibration plot
-    plt.figure(figsize=(10, 6))
-    disp = CalibrationDisplay.from_predictions(y_test, y_pred_proba, n_bins=10, name='LSTM')
-    plt.title('Calibration Plot')
-    plt.savefig(os.path.join(output_config['plots_dir'], f'lstm_{site_name}_calibration_plot.png'))
-    plt.close()
+    # Enhanced calibration analysis (matching XGBoost)
+    try:
+        print("\n=== Calibration Analysis ===")
+        
+        # Create reliability diagram
+        plt.figure(figsize=(15, 5))
+        
+        # Subplot 1: Calibration curve (reliability diagram)
+        plt.subplot(1, 3, 1)
+        fraction_of_positives, mean_predicted_value = calibration_curve(
+            y_test, y_pred_proba, n_bins=10
+        )
+        
+        plt.plot(mean_predicted_value, fraction_of_positives, "s-", label=f"LSTM (ECE={ece:.4f})")
+        plt.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+        plt.xlabel("Mean Predicted Probability")
+        plt.ylabel("Fraction of Positives")
+        plt.title("Reliability Diagram")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Subplot 2: Prediction histogram
+        plt.subplot(1, 3, 2)
+        plt.hist(y_pred_proba[y_test == 0], bins=20, alpha=0.7, label='Survived', density=True)
+        plt.hist(y_pred_proba[y_test == 1], bins=20, alpha=0.7, label='Died', density=True)
+        plt.xlabel("Predicted Probability")
+        plt.ylabel("Density")
+        plt.title("Prediction Distribution")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Subplot 3: Brier score decomposition
+        plt.subplot(1, 3, 3)
+        # Calculate Brier score components
+        reliability = np.sum((fraction_of_positives - mean_predicted_value) ** 2 * 
+                           np.histogram(y_pred_proba, bins=10)[0] / len(y_pred_proba))
+        resolution = np.sum((fraction_of_positives - np.mean(y_test)) ** 2 * 
+                          np.histogram(y_pred_proba, bins=10)[0] / len(y_pred_proba))
+        uncertainty = np.mean(y_test) * (1 - np.mean(y_test))
+        
+        components = ['Reliability', 'Resolution', 'Uncertainty', 'Brier Score']
+        values = [reliability, -resolution, uncertainty, brier_score]  # Resolution is subtracted in Brier
+        colors = ['red', 'green', 'blue', 'orange']
+        
+        bars = plt.bar(components, values, color=colors, alpha=0.7)
+        plt.title("Brier Score Decomposition")
+        plt.ylabel("Score")
+        plt.xticks(rotation=45)
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, values):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001, 
+                    f'{value:.4f}', ha='center', va='bottom', fontsize=9)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_config['plots_dir'], f'lstm_{site_name}_calibration_analysis.png'), 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        print("Enhanced calibration analysis saved successfully.")
+        
+        # Print calibration summary
+        print(f"Calibration Summary:")
+        print(f"  Expected Calibration Error (ECE): {ece:.4f}")
+        print(f"  Brier Score: {brier_score:.4f}")
+        print(f"  Reliability: {reliability:.4f}")
+        print(f"  Resolution: {resolution:.4f}")
+        print(f"  Uncertainty: {uncertainty:.4f}")
+        
+    except Exception as e:
+        print(f"Warning: Could not create calibration analysis: {e}")
 
     # Save the trained model
     torch.save(model.state_dict(), output_config['model_path'])
@@ -430,10 +489,13 @@ def train_lstm_model():
         pickle.dump(feature_cols, f)
     print(f"Feature columns saved to {output_config['feature_cols_path']}")
 
-    # Save metrics
+    # Save comprehensive metrics
     metrics = {
         'accuracy': float(accuracy),
         'roc_auc': float(roc_auc),
+        'pr_auc': float(pr_auc),
+        'brier_score': float(brier_score),
+        'expected_calibration_error': float(ece),
         'confusion_matrix': cm.tolist(),
         'training_history': {
             'train_loss': [float(x) for x in history['train_loss']],

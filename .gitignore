@@ -30,5 +30,7 @@ cohort_metadata.json
 *.csv
 
 /output
-
+/code/output
+/protected_outputs/
+protected_outputs/
 .kiro
