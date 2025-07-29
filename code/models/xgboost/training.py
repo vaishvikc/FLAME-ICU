@@ -110,22 +110,26 @@ def train_xgboost_model():
     print(f"Training mortality rate: {y_train.mean():.3f}")
     print(f"Test mortality rate: {y_test.mean():.3f}")
 
-    # Scale features and handle NaN values
-    print("Checking for missing values before scaling...")
-    print(f"NaN values in training set: {np.isnan(X_train).sum()}")
-    print(f"NaN values in test set: {np.isnan(X_test).sum()}")
-
-    # Fill NaN values with mean of column
-    X_train_filled = np.nan_to_num(X_train, nan=0.0)
-    X_test_filled = np.nan_to_num(X_test, nan=0.0)
-
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train_filled)
-    X_test_scaled = scaler.transform(X_test_filled)
-
-    print("Checking for NaN values after scaling...")
-    print(f"NaN values in scaled training set: {np.isnan(X_train_scaled).sum()}")
-    print(f"NaN values in scaled test set: {np.isnan(X_test_scaled).sum()}")
+    # Handle scaling based on configuration
+    use_scaling = config['training_config'].get('use_scaling', True)
+    print(f"Scaling enabled: {use_scaling}")
+    
+    if use_scaling:
+        print("Applying StandardScaler to features...")
+        # Check for NaN values
+        print(f"NaN values in training set: {X_train.isna().sum().sum()}")
+        print(f"NaN values in test set: {X_test.isna().sum().sum()}")
+        
+        scaler = StandardScaler()
+        X_train_processed = scaler.fit_transform(X_train)
+        X_test_processed = scaler.transform(X_test)
+        
+        print("Scaling completed.")
+    else:
+        print("Scaling disabled, using raw features...")
+        X_train_processed = X_train.values
+        X_test_processed = X_test.values
+        scaler = None
 
     # Train XGBoost model
     print("Training XGBoost model...")
@@ -138,8 +142,8 @@ def train_xgboost_model():
     params['scale_pos_weight'] = scale_pos_weight
 
     # Create DMatrix for XGBoost
-    dtrain = xgb.DMatrix(X_train_scaled, label=y_train)
-    dtest = xgb.DMatrix(X_test_scaled, label=y_test)
+    dtrain = xgb.DMatrix(X_train_processed, label=y_train)
+    dtest = xgb.DMatrix(X_test_processed, label=y_test)
 
     # Set up evaluation list
     eval_list = [(dtrain, 'train'), (dtest, 'eval')]
@@ -357,12 +361,15 @@ def train_xgboost_model():
     model.save_model(model_path)
     print(f"Model saved to {model_path}")
 
-    # Save the scaler for preprocessing new data
-    scaler_path = output_config['scaler_path']
-    os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
-    with open(scaler_path, 'wb') as f:
-        pickle.dump(scaler, f)
-    print(f"Scaler saved to {scaler_path}")
+    # Save the scaler for preprocessing new data (only if scaling was used)
+    if scaler is not None:
+        scaler_path = output_config['scaler_path']
+        os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
+        with open(scaler_path, 'wb') as f:
+            pickle.dump(scaler, f)
+        print(f"Scaler saved to {scaler_path}")
+    else:
+        print("No scaler to save (scaling was disabled)")
 
     # Save feature column names for inference
     feature_cols_path = output_config['feature_cols_path']

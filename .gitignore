@@ -29,8 +29,7 @@ cohort_metadata.json
 *.parquet
 *.csv
 
-/output
-/code/output
+# Removed old output folder references
 /protected_outputs/
 protected_outputs/
 .kiro

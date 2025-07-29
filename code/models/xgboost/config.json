@@ -1,23 +1,24 @@
 {
   "model_params": {
-    "eta": 0.019115639452698327,
-    "max_depth": 8,
-    "min_child_weight": 7,
-    "subsample": 0.7707797476075946,
-    "colsample_bytree": 0.7493783786668422,
-    "gamma": 3.1003083348139193,
-    "reg_alpha": 4.322420291817887,
-    "reg_lambda": 3.687898804671797,
+    "eta": 0.03574712922600244,
+    "max_depth": 10,
+    "min_child_weight": 8,
+    "subsample": 0.8394633936788146,
+    "colsample_bytree": 0.6624074561769746,
+    "gamma": 0.7799726016810132,
+    "reg_alpha": 0.2904180608409973,
+    "reg_lambda": 4.344263114297183,
     "objective": "binary:logistic",
     "eval_metric": "logloss",
     "seed": 42
   },
   "training_config": {
+    "use_scaling": true,
     "num_rounds": 500,
     "early_stopping_rounds": 20
   },
   "data_config": {
-    "preprocessing_path": "../../output/preprocessing",
+    "preprocessing_path": "../../protected_outputs/preprocessing",
     "feature_file": "by_event_wide_df.parquet",
     "selected_features": [
       "age_at_admission",
@@ -85,13 +86,10 @@
       "troponin_t",
       "wbc",
       "heart_rate",
-      "height_cm",
       "map",
       "respiratory_rate",
       "spo2",
       "temp_c",
-      "weight_kg",
-      "location_category",
       "eosinophils_absolute",
       "glucose_fingerstick",
       "lymphocytes_absolute",
@@ -101,8 +99,7 @@
       "troponin_i",
       "isoproterenol",
       "remifentanil",
-      "pentobarbital",
-      "fio2"
+      "pentobarbital"
     ]
   },
   "data_split": {
@@ -121,8 +118,8 @@
     "plots_dir": "../../protected_outputs/models/xgboost/plots"
   },
   "optimization_results": {
-    "best_roc_auc": 0.9164561767306465,
+    "best_roc_auc": 0.8735385559317608,
     "n_trials": 20,
-    "optimization_date": "2025-07-26T19:48:49.807059"
+    "optimization_date": "2025-07-28T20:42:20.320285"
   }
 }

@@ -78,26 +78,40 @@ def load_and_prepare_data():
     # Start with basic columns
     agg_dfs = []
     
-    # Handle numeric features with min, max, median
+    # Handle numeric features with min, max, median, mean
     if numeric_features:
         print(f"Processing {len(numeric_features)} numeric features...")
         numeric_aggregation = {}
         for feature in numeric_features:
-            numeric_aggregation[feature] = ['min', 'max', 'median']
+            # Special handling for age - just take first value
+            if feature == 'age_at_admission':
+                numeric_aggregation[feature] = 'first'
+            else:
+                numeric_aggregation[feature] = ['min', 'max', 'median', 'mean']
         numeric_aggregation['disposition'] = 'first'
         
         numeric_agg = df_filtered.groupby('hospitalization_id').agg(numeric_aggregation)
-        numeric_agg.columns = ['_'.join(col).strip() for col in numeric_agg.columns.values]
+        # Flatten column names, but handle age_at_admission specially
+        new_columns = []
+        for col in numeric_agg.columns:
+            if isinstance(col, tuple):
+                if col[0] == 'age_at_admission':
+                    new_columns.append('age_at_admission')
+                else:
+                    new_columns.append('_'.join(col).strip())
+            else:
+                new_columns.append(col)
+        numeric_agg.columns = new_columns
         numeric_agg = numeric_agg.reset_index()
         agg_dfs.append(numeric_agg)
     
-    # Handle categorical features with one-hot encoding and event counts
+    # Handle categorical features with binary one-hot encoding
     if categorical_features:
         print(f"Processing {len(categorical_features)} categorical features...")
         for cat_feature in categorical_features:
             print(f"  Processing {cat_feature}...")
             
-            # Create one-hot encoded columns with counts
+            # Create binary one-hot encoded columns (1 if exists, 0 if not)
             cat_data = df_filtered[['hospitalization_id', cat_feature]].copy()
             cat_data = cat_data.dropna(subset=[cat_feature])  # Remove rows where category is NaN
             
@@ -106,17 +120,21 @@ def load_and_prepare_data():
                 unique_categories = cat_data[cat_feature].unique()
                 print(f"    Found {len(unique_categories)} categories")
                 
-                # Create count aggregation for each category
-                cat_counts = cat_data.groupby(['hospitalization_id', cat_feature]).size().reset_index(name='count')
-                cat_pivot = cat_counts.pivot_table(
+                # Create binary indicator for each category
+                # Use any() to get 1 if category exists for hospitalization, 0 otherwise
+                cat_indicators = cat_data.drop_duplicates(subset=['hospitalization_id', cat_feature])
+                cat_indicators['indicator'] = 1
+                
+                cat_pivot = cat_indicators.pivot_table(
                     index='hospitalization_id', 
                     columns=cat_feature, 
-                    values='count', 
-                    fill_value=0
+                    values='indicator', 
+                    fill_value=np.nan,  # Let XGBoost handle missing values natively
+                    aggfunc='max'  # In case of duplicates, max of 1s is still 1
                 )
                 
-                # Rename columns to include feature name
-                cat_pivot.columns = [f"{cat_feature}_{col}_count" for col in cat_pivot.columns]
+                # Rename columns to include feature name (no _count suffix)
+                cat_pivot.columns = [f"{cat_feature}_{col}" for col in cat_pivot.columns]
                 cat_pivot = cat_pivot.reset_index()
                 
                 agg_dfs.append(cat_pivot)
@@ -129,13 +147,20 @@ def load_and_prepare_data():
     else:
         agg_df = agg_dfs[0] if agg_dfs else pd.DataFrame()
     
-    # Fill NaN values in categorical count columns with 0
-    categorical_count_cols = [col for col in agg_df.columns if '_count' in col]
-    if categorical_count_cols:
-        agg_df[categorical_count_cols] = agg_df[categorical_count_cols].fillna(0)
+    # Keep NaN values in categorical indicator columns for XGBoost native handling
+    categorical_indicator_cols = [col for col in agg_df.columns if any(col.startswith(f"{cat}_") for cat in categorical_features)]
+    print(f"Categorical indicator columns: {len(categorical_indicator_cols)} (keeping NaN values for native XGBoost handling)")
 
     print(f"Aggregated data shape: {agg_df.shape}")
     print(f"Number of unique hospitalization_ids after aggregation: {agg_df['hospitalization_id'].nunique()}")
+    
+    # Validate one row per hospitalization
+    if len(agg_df) != agg_df['hospitalization_id'].nunique():
+        print(f"WARNING: Found duplicate hospitalization_ids! {len(agg_df)} rows vs {agg_df['hospitalization_id'].nunique()} unique IDs")
+        duplicates = agg_df[agg_df.duplicated(subset=['hospitalization_id'], keep=False)]
+        print(f"Duplicate hospitalization_ids: {duplicates['hospitalization_id'].unique()[:5]}")
+    else:
+        print(f"✅ Confirmed: One row per hospitalization ({len(agg_df)} rows)")
 
     # Prepare features and target
     X = agg_df.drop(['hospitalization_id', 'disposition_first'], axis=1)

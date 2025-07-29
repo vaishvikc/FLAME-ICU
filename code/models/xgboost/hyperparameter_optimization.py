@@ -126,14 +126,10 @@ def objective(trial):
         X_fold_train, X_fold_val = X_train.iloc[train_idx], X_train.iloc[val_idx]
         y_fold_train, y_fold_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
         
-        # Handle NaN values
-        X_fold_train_filled = np.nan_to_num(X_fold_train, nan=0.0)
-        X_fold_val_filled = np.nan_to_num(X_fold_val, nan=0.0)
-        
-        # Scale features
+        # Scale features (let XGBoost handle NaN values natively)
         scaler = StandardScaler()
-        X_fold_train_scaled = scaler.fit_transform(X_fold_train_filled)
-        X_fold_val_scaled = scaler.transform(X_fold_val_filled)
+        X_fold_train_scaled = scaler.fit_transform(X_fold_train)
+        X_fold_val_scaled = scaler.transform(X_fold_val)
         
         # Create DMatrix
         dtrain_fold = xgb.DMatrix(X_fold_train_scaled, label=y_fold_train)

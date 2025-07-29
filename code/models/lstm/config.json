@@ -13,7 +13,7 @@
     "gradient_clip_value": 1.0
   },
   "data_config": {
-    "preprocessing_path": "../../output/preprocessing",
+    "preprocessing_path": "../../protected_outputs/preprocessing",
     "feature_file": "by_hourly_wide_df.parquet",
     "sequence_length": 24
   },
