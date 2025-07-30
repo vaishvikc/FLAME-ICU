@@ -7,12 +7,13 @@ import pickle
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix, average_precision_score, brier_score_loss
 from sklearn.calibration import calibration_curve
+import seaborn as sns
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
-import seaborn as sns
+import time
 
 # Set random seeds for reproducibility
 np.random.seed(42)
@@ -130,6 +131,8 @@ def init_weights(m):
 
 def train_lstm_model():
     """Train LSTM model for ICU mortality prediction using pre-split data"""
+    start_time = time.time()
+    
     # Load configuration
     config = load_config()
     model_params = config['model_params']
@@ -182,7 +185,6 @@ def train_lstm_model():
     print(f"NaN values in test set: {np.isnan(X_test).sum()}")
 
     # Normalize features
-    # We need to reshape for the scaler, then reshape back
     n_samples, n_timesteps, n_features = X_train.shape
     X_train_reshaped = X_train.reshape(-1, n_features)
     X_test_reshaped = X_test.reshape(-1, n_features)
@@ -195,20 +197,30 @@ def train_lstm_model():
     X_train_scaled = X_train_scaled.reshape(X_train.shape)
     X_test_scaled = X_test_scaled.reshape(X_test.shape)
 
+    # Split training data into train and validation
+    val_split = int(len(X_train_scaled) * 0.8)
+    X_train_split = X_train_scaled[:val_split]
+    y_train_split = y_train[:val_split]
+    X_val_split = X_train_scaled[val_split:]
+    y_val_split = y_train[val_split:]
+
     # Convert numpy arrays to PyTorch tensors
-    X_train_tensor = torch.FloatTensor(X_train_scaled)
+    X_train_tensor = torch.FloatTensor(X_train_split)
+    X_val_tensor = torch.FloatTensor(X_val_split)
     X_test_tensor = torch.FloatTensor(X_test_scaled)
-    y_train_tensor = torch.FloatTensor(y_train).reshape(-1, 1)
+    y_train_tensor = torch.FloatTensor(y_train_split).reshape(-1, 1)
+    y_val_tensor = torch.FloatTensor(y_val_split).reshape(-1, 1)
     y_test_tensor = torch.FloatTensor(y_test).reshape(-1, 1)
 
     # Create DataLoaders for batch processing
-    train_data = TensorDataset(X_train_tensor, y_train_tensor)
-    test_data = TensorDataset(X_test_tensor, y_test_tensor)
-
-    # Create data loaders
     batch_size = model_params['batch_size']
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_data, batch_size=batch_size)
+    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+    test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
     # Initialize model with optimized architecture
     num_layers = config.get('optimization_results', {}).get('num_layers', 2)
@@ -251,14 +263,13 @@ def train_lstm_model():
     }
 
     for epoch in range(num_epochs):
+        epoch_start = time.time()
+        
         # Training phase
         model.train()
         train_loss = 0.0
         train_correct = 0
         train_total = 0
-        
-        # Track if we get NaN loss
-        got_nan = False
         
         for inputs, labels in train_loader:
             optimizer.zero_grad()
@@ -274,12 +285,6 @@ def train_lstm_model():
             
             optimizer.step()
             
-            # Check for NaN loss
-            if torch.isnan(loss):
-                print(f"NaN loss detected in training batch, skipping update")
-                got_nan = True
-                continue
-            
             train_loss += loss.item() * inputs.size(0)
             predicted = (torch.sigmoid(outputs) > 0.5).float()
             train_total += labels.size(0)
@@ -293,27 +298,18 @@ def train_lstm_model():
         val_loss = 0.0
         val_correct = 0
         val_total = 0
-        val_nan_detected = False
         
         with torch.no_grad():
-            for inputs, labels in DataLoader(TensorDataset(X_train_tensor[-int(len(X_train_tensor)*0.2):], 
-                                                       y_train_tensor[-int(len(y_train_tensor)*0.2):]), 
-                                         batch_size=batch_size):
+            for inputs, labels in val_loader:
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 
-                # Check for NaN loss
-                if torch.isnan(loss):
-                    print(f"NaN loss detected in validation batch, skipping")
-                    val_nan_detected = True
-                    continue
-                    
                 val_loss += loss.item() * inputs.size(0)
                 predicted = (torch.sigmoid(outputs) > 0.5).float()
                 val_total += labels.size(0)
                 val_correct += (predicted == labels).sum().item()
         
-        val_loss = val_loss / (len(train_loader.dataset) * 0.2)
+        val_loss = val_loss / len(val_loader.dataset)
         val_acc = val_correct / val_total
         
         # Store metrics
@@ -322,19 +318,11 @@ def train_lstm_model():
         history['train_acc'].append(train_acc)
         history['val_acc'].append(val_acc)
         
-        print(f'Epoch {epoch+1}/{num_epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}')
+        epoch_time = time.time() - epoch_start
+        print(f'Epoch {epoch+1}/{num_epochs} ({epoch_time:.1f}s) | '
+              f'Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | '
+              f'Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}')
         
-        # Check for NaN values
-        if got_nan or val_nan_detected or np.isnan(train_loss) or np.isnan(val_loss):
-            print(f"NaN values detected in epoch {epoch+1}, stopping training")
-            if best_model_state is not None:
-                print("Loading last best model state")
-                model.load_state_dict(best_model_state)
-            else:
-                print("No good model state found, reinitializing model")
-                model.apply(init_weights)
-            break
-            
         # Early stopping check
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -351,8 +339,10 @@ def train_lstm_model():
     if best_model_state:
         model.load_state_dict(best_model_state)
 
+    print(f"\nTraining completed in {time.time() - start_time:.1f} seconds")
+
     # Evaluate model
-    print("Evaluating model...")
+    print("\nEvaluating model...")
     model.eval()
     y_pred_proba = []
 
@@ -361,13 +351,9 @@ def train_lstm_model():
             outputs = model(inputs)
             # Apply sigmoid to get probabilities
             probs = torch.sigmoid(outputs)
-            # Handle any potential NaN values
-            probs = torch.nan_to_num(probs, nan=0.5)
             y_pred_proba.extend(probs.cpu().numpy())
 
     y_pred_proba = np.array(y_pred_proba).ravel()
-    # Make sure there are no NaN values before calculating metrics
-    y_pred_proba = np.nan_to_num(y_pred_proba, nan=0.5)
     
     # Try different thresholds
     thresholds = [0.3, 0.4, 0.5, 0.6, 0.7]
@@ -387,15 +373,15 @@ def train_lstm_model():
     brier_score = brier_score_loss(y_test, y_pred_proba)
     ece = expected_calibration_error(y_test, y_pred_proba)
 
-    print(f"Accuracy: {accuracy:.4f}")
+    print(f"\nAccuracy: {accuracy:.4f}")
     print(f"ROC AUC: {roc_auc:.4f}")
     print(f"PR AUC: {pr_auc:.4f}")
     print(f"Brier Score: {brier_score:.4f}")
     print(f"Expected Calibration Error: {ece:.4f}")
-    print("Classification Report:")
+    print("\nClassification Report:")
     print(classification_report(y_test, y_pred))
 
-    print("Confusion Matrix:")
+    print("\nConfusion Matrix:")
     cm = confusion_matrix(y_test, y_pred)
     print(cm)
     
@@ -509,7 +495,7 @@ def train_lstm_model():
         feature_importance = np.zeros(n_features)
         
         # Use a subset of test data for efficiency
-        n_samples_importance = min(500, len(X_test_tensor))
+        n_samples_importance = min(100, len(X_test_tensor))  # Reduced for speed
         importance_loader = DataLoader(
             TensorDataset(X_test_tensor[:n_samples_importance], y_test_tensor[:n_samples_importance]),
             batch_size=1,
@@ -567,7 +553,7 @@ def train_lstm_model():
 
     # Save the trained model
     torch.save(model.state_dict(), output_config['model_path'])
-    print(f"Model saved to {output_config['model_path']}")
+    print(f"\nModel saved to {output_config['model_path']}")
 
     # Save the scaler for preprocessing new data
     with open(output_config['scaler_path'], 'wb') as f:
@@ -601,13 +587,15 @@ def train_lstm_model():
             'num_layers': num_layers,
             'dropout_rate': model_params['dropout_rate'],
             'sequence_length': X_train.shape[1]
-        }
+        },
+        'training_time_seconds': time.time() - start_time
     }
     
     with open(output_config['metrics_path'], 'w') as f:
         json.dump(metrics, f, indent=2)
     print(f"Metrics saved to {output_config['metrics_path']}")
 
+    print(f"\nTotal training time: {time.time() - start_time:.1f} seconds")
     print(f"Evaluation completed. Results saved in {output_config['plots_dir']}")
     
     return model, scaler, feature_cols

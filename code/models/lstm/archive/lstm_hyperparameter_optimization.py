@@ -146,6 +146,7 @@ def objective(trial):
         'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
         'batch_size': trial.suggest_categorical('batch_size', [8, 16, 32, 64]),
+        'gradient_clip_value': trial.suggest_float('gradient_clip_value', 0.5, 5.0),
         
         # Sequence parameter
         'sequence_length': trial.suggest_categorical('sequence_length', [12, 24, 48, 72])
@@ -238,7 +239,7 @@ def objective(trial):
                         raise ValueError("NaN loss detected")
                     
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=params['gradient_clip_value'])
                     optimizer.step()
                     train_loss += loss.item()
                 
@@ -334,7 +335,8 @@ def lstm_hyperparameter_optimization():
     
     config['training_config'].update({
         'learning_rate': best_params['learning_rate'],
-        'weight_decay': best_params['weight_decay']
+        'weight_decay': best_params['weight_decay'],
+        'gradient_clip_value': best_params.get('gradient_clip_value', 1.0)
     })
     
     config['data_config'].update({
