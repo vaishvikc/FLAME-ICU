@@ -27,7 +27,7 @@ print_step "Starting pipeline at $(date)"
 
 # Step 1: Data Splitting
 print_step "Step 1/3: Splitting data and creating aggregated features..."
-python data_splitter.py
+python ../../preprocessing/xgboost_data_splitter.py
 if [ $? -eq 0 ]; then
     print_step "✅ Data splitting completed successfully"
 else

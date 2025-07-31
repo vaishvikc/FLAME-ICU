@@ -33,3 +33,5 @@ cohort_metadata.json
 /protected_outputs/
 protected_outputs/
 .kiro
+
+/logs

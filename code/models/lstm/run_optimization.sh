@@ -53,7 +53,7 @@ echo "    Step 1: Data Splitting                "
 echo "=========================================="
 print_status "Creating train/test splits for LSTM..."
 
-if python3 data_split.py; then
+if python3 ../../preprocessing/lstm_data_split.py; then
     print_success "Data splitting completed successfully"
 else
     print_error "Data splitting failed"

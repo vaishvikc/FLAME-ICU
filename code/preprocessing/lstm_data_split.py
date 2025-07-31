@@ -19,17 +19,31 @@ np.random.seed(42)
 
 def load_config():
     """Load configuration from config file"""
-    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    # Try models/lstm/config.json first
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models', 'lstm', 'config.json')
+    if not os.path.exists(config_path):
+        # Fallback to preprocessing directory
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    
     with open(config_path, 'r') as f:
         config = json.load(f)
     return config
 
 def load_preprocessing_config():
     """Load preprocessing configuration to get site name"""
+    # Try top-level config_demo.json first (new location)
     preprocessing_config_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        'preprocessing', 'config_demo.json'
+        'config_demo.json'
     )
+    
+    if not os.path.exists(preprocessing_config_path):
+        # Fallback to old location
+        preprocessing_config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            'preprocessing', 'config_demo.json'
+        )
+    
     try:
         with open(preprocessing_config_path, 'r') as f:
             preprocessing_config = json.load(f)
@@ -97,6 +111,11 @@ def main():
     random_state = split_config['random_state']
     stratify = split_config['stratify']
     
+    # Convert relative path to absolute path based on script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if not os.path.isabs(preprocessing_path):
+        preprocessing_path = os.path.abspath(os.path.join(script_dir, preprocessing_path))
+    
     # Load data
     data_path = os.path.join(preprocessing_path, feature_file)
     print(f"Loading data from: {data_path}")
@@ -151,7 +170,8 @@ def main():
     print(f"  Test mortality rate: {y_test.mean():.3f}")
     
     # Create output directory
-    output_dir = "../../protected_outputs/intermediate/lstm"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.abspath(os.path.join(script_dir, "../../protected_outputs/intermediate/lstm"))
     os.makedirs(output_dir, exist_ok=True)
     
     # Save splits
