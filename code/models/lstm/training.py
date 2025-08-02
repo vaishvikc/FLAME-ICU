@@ -27,10 +27,20 @@ def load_config():
 
 # Load preprocessing configuration to get site name
 def load_preprocessing_config():
-    preprocessing_config_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        'preprocessing', 'config_demo.json'
-    )
+    # Get the absolute path to the project root (3 levels up from this script)
+    # Script is at: code/models/lstm/training.py
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # code/models/lstm
+    models_dir = os.path.dirname(script_dir)  # code/models
+    code_dir = os.path.dirname(models_dir)  # code
+    project_root = os.path.dirname(code_dir)  # project root
+    
+    # Try top-level config_demo.json first (new location)
+    preprocessing_config_path = os.path.join(project_root, 'config_demo.json')
+    
+    if not os.path.exists(preprocessing_config_path):
+        # Fallback to old location
+        preprocessing_config_path = os.path.join(project_root, 'preprocessing', 'config_demo.json')
+    
     try:
         with open(preprocessing_config_path, 'r') as f:
             preprocessing_config = json.load(f)
@@ -101,13 +111,22 @@ def load_presplit_lstm_data():
     """Load pre-split LSTM data"""
     config = load_config()
     
+    # Convert relative paths to absolute paths
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
     # Load training data
     train_file = config['data_split']['train_file']
+    if not os.path.isabs(train_file):
+        train_file = os.path.abspath(os.path.join(script_dir, train_file))
+    
     with open(train_file, 'rb') as f:
         train_data = pickle.load(f)
     
     # Load test data
     test_file = config['data_split']['test_file']
+    if not os.path.isabs(test_file):
+        test_file = os.path.abspath(os.path.join(script_dir, test_file))
+    
     with open(test_file, 'rb') as f:
         test_data = pickle.load(f)
     
@@ -141,19 +160,11 @@ def train_lstm_model():
     site_name = preprocessing_config.get('site', 'unknown')
     print(f"Training LSTM model for site: {site_name}")
     
-    # Update output paths with site name
+    # Update output paths to use site-specific directory structure
     for key in output_config:
         if isinstance(output_config[key], str):
-            # Replace the model name with site-specific name
-            output_config[key] = output_config[key].replace(
-                'lstm_icu_mortality_model', f'lstm_{site_name}_icu_mortality_model'
-            ).replace(
-                'feature_scaler', f'{site_name}_feature_scaler'
-            ).replace(
-                'feature_columns', f'{site_name}_feature_columns'
-            ).replace(
-                'metrics.json', f'{site_name}_metrics.json'
-            )
+            # Replace {SITE_NAME} placeholder with actual site name in paths
+            output_config[key] = output_config[key].replace('/{SITE_NAME}/', f'/{site_name}/')
     
     # Create output directories
     os.makedirs(os.path.dirname(output_config['model_path']), exist_ok=True)

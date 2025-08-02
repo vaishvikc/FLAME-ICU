@@ -63,8 +63,14 @@ def load_and_prepare_data():
     if not os.path.isabs(preprocessing_path):
         preprocessing_path = os.path.abspath(os.path.join(script_dir, preprocessing_path))
     
+    # Debug output
+    print(f"Script directory: {script_dir}")
+    print(f"Preprocessing path from config: {config['data_config']['preprocessing_path']}")
+    print(f"Resolved preprocessing path: {preprocessing_path}")
+    
     # Load data
     data_path = os.path.join(preprocessing_path, feature_file)
+    print(f"Looking for data at: {data_path}")
     df = pd.read_parquet(data_path)
     print(f"Data shape: {df.shape}")
     print(f"Number of unique hospitalization_ids: {df['hospitalization_id'].nunique()}")

@@ -1,9 +1,11 @@
+altair
 arrow
 DateTime
 duckdb
 ipykernel
 ipython
 jupyter
+marimo
 matplotlib
 matplotlib-inline
 nbclient

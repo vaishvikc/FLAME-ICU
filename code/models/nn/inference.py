@@ -15,6 +15,30 @@ def load_config():
     return config
 
 
+def load_preprocessing_config():
+    """Load preprocessing configuration to get site name"""
+    # Try top-level config_demo.json first (new location)
+    preprocessing_config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        'config_demo.json'
+    )
+    
+    if not os.path.exists(preprocessing_config_path):
+        # Fallback to old location
+        preprocessing_config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            'preprocessing', 'config_demo.json'
+        )
+    
+    try:
+        with open(preprocessing_config_path, 'r') as f:
+            preprocessing_config = json.load(f)
+        return preprocessing_config
+    except FileNotFoundError:
+        print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
+        return {"site": "unknown"}
+
+
 def load_model_and_preprocessors(model_path=None, scaler_path=None, feature_cols_path=None):
     """
     Load trained model and preprocessing artifacts.
@@ -28,28 +52,26 @@ def load_model_and_preprocessors(model_path=None, scaler_path=None, feature_cols
         model, scaler, feature_columns, device
     """
     config = load_config()
+    output_config = config['output_config'].copy()
+    
+    # Load preprocessing config to get site name
+    preprocessing_config = load_preprocessing_config()
+    site_name = preprocessing_config.get('site', 'unknown')
+    print(f"Loading model for site: {site_name}")
+    
+    # Update output paths with site name
+    for key in output_config:
+        if isinstance(output_config[key], str):
+            # Replace {SITE_NAME} placeholder with actual site name
+            output_config[key] = output_config[key].replace('/{SITE_NAME}/', f'/{site_name}/')
     
     # Use provided paths or fall back to config
     if model_path is None:
-        model_path = config['output_config']['model_path']
+        model_path = output_config['model_path']
     if scaler_path is None:
-        scaler_path = config['output_config']['scaler_path']
+        scaler_path = output_config['scaler_path']
     if feature_cols_path is None:
-        feature_cols_path = config['output_config']['feature_cols_path']
-    
-    # Check for site-specific model files
-    if not os.path.exists(model_path):
-        # Try to find site-specific model
-        model_dir = os.path.dirname(model_path)
-        model_files = [f for f in os.listdir(model_dir) if f.endswith('_icu_mortality_model.pt')]
-        if model_files:
-            model_path = os.path.join(model_dir, model_files[0])
-            print(f"Using model: {model_path}")
-            
-            # Extract site name and update other paths
-            site_name = model_files[0].split('_')[1]
-            scaler_path = scaler_path.replace('nn_feature_scaler', f'nn_{site_name}_feature_scaler')
-            feature_cols_path = feature_cols_path.replace('nn_feature_columns', f'nn_{site_name}_feature_columns')
+        feature_cols_path = output_config['feature_cols_path']
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

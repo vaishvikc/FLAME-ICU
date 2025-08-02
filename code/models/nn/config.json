@@ -21,7 +21,7 @@
     "use_scaling": true
   },
   "data_config": {
-    "preprocessing_path": "../../protected_outputs/preprocessing",
+    "preprocessing_path": "../../../protected_outputs/preprocessing",
     "feature_file": "by_event_wide_df.parquet",
     "selected_features": [
       "age_at_admission",
@@ -110,14 +110,14 @@
     "test_ratio": 0.3,
     "random_state": 42,
     "stratify": true,
-    "train_file": "../../protected_outputs/intermediate/data/train_df.parquet",
-    "test_file": "../../protected_outputs/intermediate/data/test_df.parquet"
+    "train_file": "../../../protected_outputs/intermediate/data/train_df.parquet",
+    "test_file": "../../../protected_outputs/intermediate/data/test_df.parquet"
   },
   "output_config": {
-    "model_path": "../../protected_outputs/models/nn/nn_icu_mortality_model.pt",
-    "scaler_path": "../../protected_outputs/models/nn/nn_feature_scaler.pkl",
-    "feature_cols_path": "../../protected_outputs/models/nn/nn_feature_columns.pkl",
-    "metrics_path": "../../protected_outputs/models/nn/metrics.json",
-    "plots_dir": "../../protected_outputs/models/nn/plots"
+    "model_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/nn/nn_icu_mortality_model.pt",
+    "scaler_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/nn/nn_feature_scaler.pkl",
+    "feature_cols_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/nn/nn_feature_columns.pkl",
+    "metrics_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/nn/metrics.json",
+    "plots_dir": "../../../protected_outputs/models_stage_1/{SITE_NAME}/nn/plots"
   }
 }

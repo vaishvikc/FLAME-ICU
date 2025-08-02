@@ -19,6 +19,30 @@ def load_config():
         config = json.load(f)
     return config
 
+
+def load_preprocessing_config():
+    """Load preprocessing configuration to get site name"""
+    # Try top-level config_demo.json first (new location)
+    preprocessing_config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        'config_demo.json'
+    )
+    
+    if not os.path.exists(preprocessing_config_path):
+        # Fallback to old location
+        preprocessing_config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            'preprocessing', 'config_demo.json'
+        )
+    
+    try:
+        with open(preprocessing_config_path, 'r') as f:
+            preprocessing_config = json.load(f)
+        return preprocessing_config
+    except FileNotFoundError:
+        print(f"Warning: Preprocessing config not found at {preprocessing_config_path}")
+        return {"site": "unknown"}
+
 # Define the same LSTM model architecture used in training
 class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_size1=64, hidden_size2=32, output_size=1, dropout_rate=0.2):
@@ -103,9 +127,20 @@ def prepare_sequences(df, feature_cols, sequence_length=24):
 def load_model_and_metadata():
     """Load saved model, scaler, and feature columns"""
     config = load_config()
-    output_config = config['output_config']
+    output_config = config['output_config'].copy()
     model_params = config['model_params']
     data_config = config['data_config']
+    
+    # Load preprocessing config to get site name
+    preprocessing_config = load_preprocessing_config()
+    site_name = preprocessing_config.get('site', 'unknown')
+    print(f"Loading model for site: {site_name}")
+    
+    # Update output paths with site name
+    for key in output_config:
+        if isinstance(output_config[key], str):
+            # Replace {SITE_NAME} placeholder with actual site name
+            output_config[key] = output_config[key].replace('/{SITE_NAME}/', f'/{site_name}/')
     
     model_path = output_config['model_path']
     scaler_path = output_config['scaler_path']

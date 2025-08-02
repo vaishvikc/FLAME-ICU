@@ -40,14 +40,8 @@ def load_model_and_metadata():
     # Update output paths with site name
     for key in output_config:
         if isinstance(output_config[key], str):
-            # Replace the model name with site-specific name
-            output_config[key] = output_config[key].replace(
-                'xgb_icu_mortality_model', f'xgb_{site_name}_icu_mortality_model'
-            ).replace(
-                'xgb_feature_scaler', f'xgb_{site_name}_feature_scaler'
-            ).replace(
-                'xgb_feature_columns', f'xgb_{site_name}_feature_columns'
-            )
+            # Replace {SITE_NAME} placeholder with actual site name
+            output_config[key] = output_config[key].replace('/{SITE_NAME}/', f'/{site_name}/')
     
     model_path = output_config['model_path']
     scaler_path = output_config['scaler_path']

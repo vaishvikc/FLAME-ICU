@@ -107,15 +107,15 @@
     "test_ratio": 0.3,
     "random_state": 42,
     "stratify": true,
-    "train_file": "../../protected_outputs/intermediate/data/train_df.parquet",
-    "test_file": "../../protected_outputs/intermediate/data/test_df.parquet"
+    "train_file": "../../../protected_outputs/intermediate/data/train_df.parquet",
+    "test_file": "../../../protected_outputs/intermediate/data/test_df.parquet"
   },
   "output_config": {
-    "model_path": "../../protected_outputs/models/xgboost/xgb_icu_mortality_model.json",
-    "scaler_path": "../../protected_outputs/models/xgboost/xgb_feature_scaler.pkl",
-    "feature_cols_path": "../../protected_outputs/models/xgboost/xgb_feature_columns.pkl",
-    "metrics_path": "../../protected_outputs/models/xgboost/metrics.json",
-    "plots_dir": "../../protected_outputs/models/xgboost/plots"
+    "model_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/xgboost/xgb_icu_mortality_model.json",
+    "scaler_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/xgboost/xgb_feature_scaler.pkl",
+    "feature_cols_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/xgboost/xgb_feature_columns.pkl",
+    "metrics_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/xgboost/metrics.json",
+    "plots_dir": "../../../protected_outputs/models_stage_1/{SITE_NAME}/xgboost/plots"
   },
   "optimization_results": {
     "best_roc_auc": 0.8735385559317608,

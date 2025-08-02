@@ -127,20 +127,20 @@ check_dependencies() {
     local python_version=$(python3 --version 2>&1 | awk '{print $2}')
     print_substep "Python version: $python_version"
     
-    # Check Jupyter
-    if ! command -v jupyter &> /dev/null; then
-        print_error "Jupyter not found. Please install jupyter: pip install jupyter"
+    # Check marimo in virtual environment
+    if ! (source "$SCRIPT_DIR/flameICU/bin/activate" && python3 -c "import marimo" 2>/dev/null); then
+        print_error "marimo not found in virtual environment. Please activate flameICU and install marimo: pip install marimo"
         exit 1
     fi
-    print_substep "Jupyter found"
+    print_substep "marimo found"
     
-    # Check required Python packages
+    # Check required Python packages in virtual environment
     local required_packages=("pandas" "numpy" "pyclif" "sklearn")
     for package in "${required_packages[@]}"; do
-        if python3 -c "import $package" 2>/dev/null; then
+        if (source "$SCRIPT_DIR/flameICU/bin/activate" && python3 -c "import $package" 2>/dev/null); then
             print_substep "$package: ✓"
         else
-            print_error "Required Python package '$package' not found"
+            print_error "Required Python package '$package' not found in virtual environment"
             exit 1
         fi
     done
@@ -166,25 +166,21 @@ check_dependencies() {
 }
 
 # ===============================================================================
-# NOTEBOOK EXECUTION
+# SCRIPT EXECUTION
 # ===============================================================================
 
-execute_notebook() {
-    local notebook_name=$1
+execute_script() {
+    local script_name=$1
     local description=$2
     
     print_step "Executing: $description"
-    print_substep "Notebook: $notebook_name"
+    print_substep "Script: $script_name"
     
     local start_time=$(date +%s)
     
-    # Execute notebook with papermill for better progress visibility
-    if papermill \
-        "$notebook_name" \
-        "$notebook_name" \
-        --kernel python3 \
-        --progress-bar \
-        2>&1 | tee -a "$LOG_FILE"; then
+    # Activate virtual environment and execute script
+    if source "$SCRIPT_DIR/flameICU/bin/activate" && \
+       python3 "$script_name" 2>&1 | tee -a "$LOG_FILE"; then
         
         local end_time=$(date +%s)
         local duration=$((end_time - start_time))
@@ -270,15 +266,15 @@ run_phase1_core_preprocessing() {
     
     # Step 1: Cohort Generation
     show_progress 1 3 "Generating ICU cohort..."
-    execute_notebook "01_cohort.ipynb" "ICU Cohort Generation"
+    execute_script "01_cohort.py" "ICU Cohort Generation"
     
     # Step 2: Feature Engineering
     show_progress 2 3 "Engineering features..."
-    execute_notebook "02_feature_engineering.ipynb" "Feature Engineering"
+    execute_script "02_feature_engineering.py" "Feature Engineering"
     
     # Step 3: Dataset Statistics
     show_progress 3 3 "Computing dataset statistics..."
-    execute_notebook "03_dataset_statistics.ipynb" "Dataset Statistics"
+    execute_script "03_dataset_statistics.py" "Dataset Statistics"
     
     print_success "Phase 1: Core preprocessing completed successfully"
 }
@@ -291,7 +287,9 @@ run_phase2_data_splitting() {
     # Step 1: XGBoost Data Splitting
     show_progress 1 3 "Splitting XGBoost data..."
     print_step "Running XGBoost data splitter..."
-    if python3 xgboost_data_splitter.py 2>&1 | tee -a "$LOG_FILE"; then
+    if source "$SCRIPT_DIR/flameICU/bin/activate" && \
+       cd "$SCRIPT_DIR/code/preprocessing" && \
+       python3 xgboost_data_splitter.py 2>&1 | tee -a "$LOG_FILE"; then
         print_success "XGBoost data splitting completed"
     else
         print_error "XGBoost data splitting failed"
@@ -301,7 +299,9 @@ run_phase2_data_splitting() {
     # Step 2: LSTM Data Splitting
     show_progress 2 3 "Splitting LSTM data..."
     print_step "Running LSTM data splitter..."
-    if python3 lstm_data_split.py 2>&1 | tee -a "$LOG_FILE"; then
+    if source "$SCRIPT_DIR/flameICU/bin/activate" && \
+       cd "$SCRIPT_DIR/code/preprocessing" && \
+       python3 lstm_data_split.py 2>&1 | tee -a "$LOG_FILE"; then
         print_success "LSTM data splitting completed"
     else
         print_error "LSTM data splitting failed"
@@ -357,9 +357,9 @@ generate_summary_report() {
         echo ""
         
         echo "PHASE 1: CORE PREPROCESSING"
-        echo "  ✓ ICU Cohort Generation (01_cohort.ipynb)"
-        echo "  ✓ Feature Engineering (02_feature_engineering.ipynb)"
-        echo "  ✓ Dataset Statistics (03_dataset_statistics.ipynb)"
+        echo "  ✓ ICU Cohort Generation (01_cohort.py)"
+        echo "  ✓ Feature Engineering (02_feature_engineering.py)"
+        echo "  ✓ Dataset Statistics (03_dataset_statistics.py)"
         echo ""
         
         echo "PHASE 2: MODEL-SPECIFIC DATA SPLITTING"

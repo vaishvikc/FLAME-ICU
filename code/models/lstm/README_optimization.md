@@ -5,7 +5,7 @@ This directory contains a streamlined LSTM model pipeline for ICU mortality pred
 
 ## Main Scripts
 
-### 1. `data_split.py`
+### 1. `../../preprocessing/lstm_data_split.py`
 - Creates train/test splits for LSTM sequential data
 - Saves splits to `../../protected_outputs/intermediate/lstm/`
 - Uses split ratios from `config.json`
@@ -36,7 +36,7 @@ Run the complete optimization pipeline:
 Or run steps individually:
 ```bash
 # Step 1: Create data splits
-python3 data_split.py
+python3 ../../preprocessing/lstm_data_split.py
 
 # Step 2: Optimize architecture and hyperparameters
 python3 optimize.py

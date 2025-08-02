@@ -7,7 +7,10 @@ import pickle
 import xgboost as xgb
 # Removed train_test_split import - using pre-split data
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix, average_precision_score, brier_score_loss
+from sklearn.metrics import (
+    accuracy_score, roc_auc_score, classification_report, confusion_matrix, 
+    average_precision_score, brier_score_loss, roc_curve, precision_recall_curve
+)
 from sklearn.calibration import calibration_curve
 import seaborn as sns
 
@@ -23,10 +26,20 @@ def load_config():
 
 def load_preprocessing_config():
     """Load preprocessing configuration to get site name"""
-    preprocessing_config_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        'preprocessing', 'config_demo.json'
-    )
+    # Get the absolute path to the project root (3 levels up from this script)
+    # Script is at: code/models/xgboost/training.py
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # code/models/xgboost
+    models_dir = os.path.dirname(script_dir)  # code/models
+    code_dir = os.path.dirname(models_dir)  # code
+    project_root = os.path.dirname(code_dir)  # project root
+    
+    # Try top-level config_demo.json first (new location)
+    preprocessing_config_path = os.path.join(project_root, 'config_demo.json')
+    
+    if not os.path.exists(preprocessing_config_path):
+        # Fallback to old location
+        preprocessing_config_path = os.path.join(project_root, 'preprocessing', 'config_demo.json')
+    
     try:
         with open(preprocessing_config_path, 'r') as f:
             preprocessing_config = json.load(f)
@@ -53,6 +66,190 @@ def expected_calibration_error(y_true, y_prob, n_bins=10):
     
     return ece
 
+
+def plot_training_history(evals_result, best_iteration, plots_dir, site_name):
+    """Plot XGBoost training history"""
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    
+    # Extract training history
+    train_loss = evals_result['train']['logloss']
+    val_loss = evals_result['eval']['logloss']
+    epochs = list(range(len(train_loss)))
+    
+    # Loss plot
+    axes[0].plot(epochs, train_loss, label='Train Loss', alpha=0.8)
+    axes[0].plot(epochs, val_loss, label='Val Loss', alpha=0.8)
+    axes[0].axvline(x=best_iteration, color='r', linestyle='--', alpha=0.5, label=f'Best Iteration ({best_iteration})')
+    axes[0].set_xlabel('Boosting Round')
+    axes[0].set_ylabel('Log Loss')
+    axes[0].set_title('Training and Validation Loss')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+    
+    # Learning curve zoom (last 50% of training)
+    start_idx = len(epochs) // 2
+    axes[1].plot(epochs[start_idx:], train_loss[start_idx:], label='Train Loss', alpha=0.8)
+    axes[1].plot(epochs[start_idx:], val_loss[start_idx:], label='Val Loss', alpha=0.8)
+    if best_iteration >= start_idx:
+        axes[1].axvline(x=best_iteration, color='r', linestyle='--', alpha=0.5, label=f'Best Iteration ({best_iteration})')
+    axes[1].set_xlabel('Boosting Round')
+    axes[1].set_ylabel('Log Loss')
+    axes[1].set_title('Training and Validation Loss (Zoomed)')
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_training_history.png'), 
+                dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_evaluation_metrics(y_true, y_pred_proba, plots_dir, site_name):
+    """Create comprehensive evaluation plots similar to NN model"""
+    fig = plt.figure(figsize=(20, 15))
+    
+    # 1. ROC Curve
+    ax1 = plt.subplot(3, 3, 1)
+    fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
+    auc = roc_auc_score(y_true, y_pred_proba)
+    ax1.plot(fpr, tpr, label=f'ROC (AUC = {auc:.3f})', linewidth=2)
+    ax1.plot([0, 1], [0, 1], 'k--', label='Random', alpha=0.5)
+    ax1.set_xlabel('False Positive Rate')
+    ax1.set_ylabel('True Positive Rate')
+    ax1.set_title('ROC Curve')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Precision-Recall Curve
+    ax2 = plt.subplot(3, 3, 2)
+    precision, recall, _ = precision_recall_curve(y_true, y_pred_proba)
+    pr_auc = average_precision_score(y_true, y_pred_proba)
+    ax2.plot(recall, precision, label=f'PR (AUC = {pr_auc:.3f})', linewidth=2)
+    ax2.set_xlabel('Recall')
+    ax2.set_ylabel('Precision')
+    ax2.set_title('Precision-Recall Curve')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Calibration Plot
+    ax3 = plt.subplot(3, 3, 3)
+    # Determine number of bins based on dataset size
+    n_bins = min(10, len(y_true) // 10)
+    if n_bins < 3:
+        n_bins = 3
+    
+    fraction_of_positives, mean_predicted_value = calibration_curve(
+        y_true, y_pred_proba, n_bins=n_bins, strategy='uniform'
+    )
+    ece = expected_calibration_error(y_true, y_pred_proba, n_bins=n_bins)
+    ax3.plot(mean_predicted_value, fraction_of_positives, "s-", 
+             label=f'XGBoost (ECE={ece:.4f})', linewidth=2, markersize=8)
+    ax3.plot([0, 1], [0, 1], "k--", label="Perfect calibration", alpha=0.5)
+    ax3.set_xlabel('Mean Predicted Probability')
+    ax3.set_ylabel('Fraction of Positives')
+    ax3.set_title('Calibration Plot')
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. Confusion Matrix
+    ax4 = plt.subplot(3, 3, 4)
+    y_pred = (y_pred_proba > 0.5).astype(int)
+    cm = confusion_matrix(y_true, y_pred)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax4, 
+                xticklabels=['Survived', 'Died'],
+                yticklabels=['Survived', 'Died'])
+    ax4.set_xlabel('Predicted')
+    ax4.set_ylabel('Actual')
+    ax4.set_title('Confusion Matrix')
+    
+    # 5. Prediction Distribution
+    ax5 = plt.subplot(3, 3, 5)
+    ax5.hist(y_pred_proba[y_true == 0], bins=30, alpha=0.6, label='Survived', density=True, color='blue')
+    ax5.hist(y_pred_proba[y_true == 1], bins=30, alpha=0.6, label='Died', density=True, color='red')
+    ax5.axvline(x=0.5, color='k', linestyle='--', alpha=0.5, label='Default threshold')
+    ax5.set_xlabel('Predicted Probability')
+    ax5.set_ylabel('Density')
+    ax5.set_title('Prediction Distribution by Outcome')
+    ax5.legend()
+    ax5.grid(True, alpha=0.3)
+    
+    # 6. Threshold Analysis
+    ax6 = plt.subplot(3, 3, 6)
+    thresholds = np.linspace(0, 1, 100)
+    sensitivities = []
+    specificities = []
+    accuracies = []
+    
+    for threshold in thresholds:
+        y_pred_t = (y_pred_proba > threshold).astype(int)
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred_t).ravel()
+        
+        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+        accuracy = (tp + tn) / (tp + tn + fp + fn)
+        
+        sensitivities.append(sensitivity)
+        specificities.append(specificity)
+        accuracies.append(accuracy)
+    
+    ax6.plot(thresholds, sensitivities, label='Sensitivity', linewidth=2)
+    ax6.plot(thresholds, specificities, label='Specificity', linewidth=2)
+    ax6.plot(thresholds, accuracies, label='Accuracy', linewidth=2)
+    ax6.axvline(x=0.5, color='k', linestyle='--', alpha=0.5)
+    ax6.set_xlabel('Threshold')
+    ax6.set_ylabel('Metric Value')
+    ax6.set_title('Threshold Analysis')
+    ax6.legend()
+    ax6.grid(True, alpha=0.3)
+    
+    # 7. Score Distribution (Box plot)
+    ax7 = plt.subplot(3, 3, 7)
+    data_for_box = [y_pred_proba[y_true == 0], y_pred_proba[y_true == 1]]
+    box = ax7.boxplot(data_for_box, tick_labels=['Survived', 'Died'], patch_artist=True)
+    box['boxes'][0].set_facecolor('blue')
+    box['boxes'][1].set_facecolor('red')
+    ax7.set_ylabel('Predicted Probability')
+    ax7.set_title('Score Distribution by Outcome')
+    ax7.grid(True, alpha=0.3, axis='y')
+    
+    # 8. Performance Summary Text
+    ax8 = plt.subplot(3, 3, 8)
+    ax8.axis('off')
+    
+    brier_score = brier_score_loss(y_true, y_pred_proba)
+    
+    summary_text = f"""Performance Summary:
+    
+    ROC AUC: {auc:.4f}
+    PR AUC: {pr_auc:.4f}
+    Brier Score: {brier_score:.4f}
+    ECE: {ece:.4f}
+    
+    Accuracy: {accuracy_score(y_true, y_pred):.4f}
+    Sensitivity: {sensitivities[50]:.4f}
+    Specificity: {specificities[50]:.4f}
+    
+    Class Distribution:
+    Survived: {(y_true == 0).sum()} ({(y_true == 0).mean():.1%})
+    Died: {(y_true == 1).sum()} ({(y_true == 1).mean():.1%})
+    """
+    
+    ax8.text(0.1, 0.5, summary_text, fontsize=12, family='monospace',
+             verticalalignment='center', transform=ax8.transAxes)
+    
+    # 9. Probability Calibration Histogram
+    ax9 = plt.subplot(3, 3, 9)
+    ax9.hist(y_pred_proba, bins=20, alpha=0.7, edgecolor='black')
+    ax9.set_xlabel('Predicted Probability')
+    ax9.set_ylabel('Count')
+    ax9.set_title('Distribution of Predicted Probabilities')
+    ax9.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_evaluation_metrics.png'), 
+                dpi=300, bbox_inches='tight')
+    plt.close()
+
 def train_xgboost_model():
     """Train XGBoost model for ICU mortality prediction using pre-split data"""
     # Load configuration
@@ -66,19 +263,17 @@ def train_xgboost_model():
     # Make a copy of output config to modify
     output_config = config['output_config'].copy()
     
-    # Update output paths with site name
+    # Update output paths to use site-specific directory structure
     for key in output_config:
         if isinstance(output_config[key], str):
-            # Replace the model name with site-specific name
-            output_config[key] = output_config[key].replace(
-                'xgb_icu_mortality_model', f'xgb_{site_name}_icu_mortality_model'
-            ).replace(
-                'xgb_feature_scaler', f'xgb_{site_name}_feature_scaler'
-            ).replace(
-                'xgb_feature_columns', f'xgb_{site_name}_feature_columns'
-            ).replace(
-                'metrics.json', f'{site_name}_metrics.json'
-            )
+            # Replace {SITE_NAME} placeholder with actual site name in paths
+            output_config[key] = output_config[key].replace('/{SITE_NAME}/', f'/{site_name}/')
+    
+    # Convert output paths to absolute paths based on script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    for key in output_config:
+        if isinstance(output_config[key], str) and not os.path.isabs(output_config[key]):
+            output_config[key] = os.path.abspath(os.path.join(script_dir, output_config[key]))
     
     # Create output directories
     output_model_dir = os.path.dirname(output_config['model_path'])
@@ -90,6 +285,13 @@ def train_xgboost_model():
     print("Loading pre-split data...")
     train_file = config['data_split']['train_file']
     test_file = config['data_split']['test_file']
+    
+    # Convert relative paths to absolute paths based on script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if not os.path.isabs(train_file):
+        train_file = os.path.abspath(os.path.join(script_dir, train_file))
+    if not os.path.isabs(test_file):
+        test_file = os.path.abspath(os.path.join(script_dir, test_file))
     
     print(f"Loading training data from: {train_file}")
     train_df = pd.read_parquet(train_file)
@@ -156,12 +358,14 @@ def train_xgboost_model():
     # Create a watchlist for monitoring
     watchlist = [(dtrain, 'train'), (dtest, 'eval')]
 
-    # Train the model
+    # Train the model and capture evaluation results
+    evals_result = {}
     model = xgb.train(
         params, 
         dtrain, 
         num_rounds,
         evals=watchlist,
+        evals_result=evals_result,
         early_stopping_rounds=early_stopping_rounds,
         verbose_eval=50
     )
@@ -218,6 +422,32 @@ def train_xgboost_model():
         'confusion_matrix': cm.tolist(),
         'best_iteration': model.best_iteration
     }
+    
+    # Add feature importance using gain metric (most meaningful for tree models)
+    try:
+        feature_importance = model.get_score(importance_type='gain')
+        feature_importance_dict = {}
+        feature_names = list(X_train.columns)
+        
+        if feature_importance:
+            for xgb_feature, score in feature_importance.items():
+                # XGBoost uses f0, f1, f2, ... for feature names
+                if xgb_feature.startswith('f'):
+                    try:
+                        feature_idx = int(xgb_feature[1:])
+                        if feature_idx < len(feature_names):
+                            original_name = feature_names[feature_idx]
+                            feature_importance_dict[original_name] = float(score)
+                    except (ValueError, IndexError):
+                        pass
+                else:
+                    feature_importance_dict[xgb_feature] = float(score)
+            
+            metrics['feature_importance'] = feature_importance_dict
+            print(f"Added feature importance for {len(feature_importance_dict)} features to metrics")
+    except Exception as e:
+        print(f"Warning: Could not add feature importance to metrics: {e}")
+        metrics['feature_importance'] = {}
     
     with open(output_config['metrics_path'], 'w') as f:
         json.dump(metrics, f, indent=2)
@@ -283,77 +513,13 @@ def train_xgboost_model():
         for i, col in enumerate(X_train.columns[:20]):
             print(f"{i:2d}: {col}")
 
-    # Enhanced calibration analysis
-    try:
-        print("\n=== Calibration Analysis ===")
-        
-        # Create reliability diagram
-        plt.figure(figsize=(15, 5))
-        
-        # Subplot 1: Calibration curve (reliability diagram)
-        plt.subplot(1, 3, 1)
-        fraction_of_positives, mean_predicted_value = calibration_curve(
-            y_test, y_pred_proba, n_bins=10
-        )
-        
-        plt.plot(mean_predicted_value, fraction_of_positives, "s-", label=f"XGBoost (ECE={ece:.4f})")
-        plt.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
-        plt.xlabel("Mean Predicted Probability")
-        plt.ylabel("Fraction of Positives")
-        plt.title("Reliability Diagram")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        # Subplot 2: Prediction histogram
-        plt.subplot(1, 3, 2)
-        plt.hist(y_pred_proba[y_test == 0], bins=20, alpha=0.7, label='Survived', density=True)
-        plt.hist(y_pred_proba[y_test == 1], bins=20, alpha=0.7, label='Died', density=True)
-        plt.xlabel("Predicted Probability")
-        plt.ylabel("Density")
-        plt.title("Prediction Distribution")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        # Subplot 3: Brier score decomposition
-        plt.subplot(1, 3, 3)
-        # Calculate Brier score components
-        reliability = np.sum((fraction_of_positives - mean_predicted_value) ** 2 * 
-                           np.histogram(y_pred_proba, bins=10)[0] / len(y_pred_proba))
-        resolution = np.sum((fraction_of_positives - np.mean(y_test)) ** 2 * 
-                          np.histogram(y_pred_proba, bins=10)[0] / len(y_pred_proba))
-        uncertainty = np.mean(y_test) * (1 - np.mean(y_test))
-        
-        components = ['Reliability', 'Resolution', 'Uncertainty', 'Brier Score']
-        values = [reliability, -resolution, uncertainty, brier_score]  # Resolution is subtracted in Brier
-        colors = ['red', 'green', 'blue', 'orange']
-        
-        bars = plt.bar(components, values, color=colors, alpha=0.7)
-        plt.title("Brier Score Decomposition")
-        plt.ylabel("Score")
-        plt.xticks(rotation=45)
-        
-        # Add value labels on bars
-        for bar, value in zip(bars, values):
-            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001, 
-                    f'{value:.4f}', ha='center', va='bottom', fontsize=9)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, f'xgb_{site_name}_calibration_analysis.png'), 
-                   dpi=300, bbox_inches='tight')
-        plt.close()
-        print("Enhanced calibration analysis saved successfully.")
-        
-        # Print calibration summary
-        print(f"Calibration Summary:")
-        print(f"  Expected Calibration Error (ECE): {ece:.4f}")
-        print(f"  Brier Score: {brier_score:.4f}")
-        print(f"  Reliability: {reliability:.4f}")
-        print(f"  Resolution: {resolution:.4f}")
-        print(f"  Uncertainty: {uncertainty:.4f}")
-        
-    except Exception as e:
-        print(f"Warning: Could not create calibration analysis: {e}")
-        print("Skipping calibration analysis.")
+    # Generate comprehensive evaluation plots
+    print("\nGenerating evaluation plots...")
+    plot_evaluation_metrics(y_test, y_pred_proba, plots_dir, site_name)
+    
+    # Generate training history plot
+    print("Generating training history plot...")
+    plot_training_history(evals_result, model.best_iteration, plots_dir, site_name)
 
     # Save the trained model
     model_path = output_config['model_path']

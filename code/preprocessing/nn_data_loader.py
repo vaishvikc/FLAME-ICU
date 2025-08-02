@@ -84,6 +84,28 @@ def load_data():
     train_file = config['data_split']['train_file']
     test_file = config['data_split']['test_file']
     
+    # Convert relative paths to absolute paths
+    # Get project root directory (2 levels up from preprocessing/)
+    script_dir = os.path.dirname(os.path.abspath(__file__))  # code/preprocessing
+    code_dir = os.path.dirname(script_dir)  # code
+    project_root = os.path.dirname(code_dir)  # project root
+    
+    if not os.path.isabs(train_file):
+        # Handle paths that are relative to models/nn/ directory
+        if train_file.startswith('../../../'):
+            # Path is relative to models/nn/, convert to absolute from project root
+            train_file = os.path.join(project_root, train_file.replace('../../../', ''))
+        else:
+            train_file = os.path.abspath(os.path.join(script_dir, train_file))
+    
+    if not os.path.isabs(test_file):
+        # Handle paths that are relative to models/nn/ directory
+        if test_file.startswith('../../../'):
+            # Path is relative to models/nn/, convert to absolute from project root
+            test_file = os.path.join(project_root, test_file.replace('../../../', ''))
+        else:
+            test_file = os.path.abspath(os.path.join(script_dir, test_file))
+    
     print(f"Loading training data from: {train_file}")
     train_df = pd.read_parquet(train_file)
     print(f"Training data shape: {train_df.shape}")
@@ -198,13 +220,9 @@ def create_data_loaders(X_train, X_test, y_train, y_test, batch_size=64,
 
 def save_preprocessing_artifacts(scaler, feature_columns, output_config, site_name):
     """Save scaler and feature columns for inference"""
-    # Update paths with site name
-    scaler_path = output_config['scaler_path'].replace(
-        'nn_feature_scaler', f'nn_{site_name}_feature_scaler'
-    )
-    feature_cols_path = output_config['feature_cols_path'].replace(
-        'nn_feature_columns', f'nn_{site_name}_feature_columns'
-    )
+    # Update paths to use site-specific directory structure
+    scaler_path = output_config['scaler_path'].replace('/{SITE_NAME}/', f'/{site_name}/')
+    feature_cols_path = output_config['feature_cols_path'].replace('/{SITE_NAME}/', f'/{site_name}/')
     
     # Create output directory if needed
     os.makedirs(os.path.dirname(scaler_path), exist_ok=True)

@@ -18,7 +18,15 @@ import time
 from datetime import datetime
 
 from model import ICUMortalityNN, EarlyStopping
-from ..preprocessing.nn_data_loader import load_data, create_data_loaders, save_preprocessing_artifacts, load_config
+
+# Add parent directories to sys.path for imports
+import sys
+script_dir = os.path.dirname(os.path.abspath(__file__))
+models_dir = os.path.dirname(script_dir)
+code_dir = os.path.dirname(models_dir)
+sys.path.insert(0, code_dir)
+
+from preprocessing.nn_data_loader import load_data, create_data_loaders, save_preprocessing_artifacts, load_config
 
 
 def expected_calibration_error(y_true, y_prob, n_bins=10):
@@ -329,8 +337,14 @@ def train_neural_network():
         'lr': []
     }
     
-    # Create output directories
-    output_config = config['output_config']
+    # Create output directories with site-specific paths
+    output_config = config['output_config'].copy()
+    
+    # Update all output paths to use site-specific directory structure
+    for key in output_config:
+        if isinstance(output_config[key], str):
+            output_config[key] = output_config[key].replace('/{SITE_NAME}/', f'/{site_name}/')
+    
     output_model_dir = os.path.dirname(output_config['model_path'])
     plots_dir = output_config['plots_dir']
     os.makedirs(output_model_dir, exist_ok=True)
@@ -420,10 +434,8 @@ def train_neural_network():
     cm = confusion_matrix(test_labels, test_preds_binary)
     print(cm)
     
-    # Save model
-    model_path = output_config['model_path'].replace(
-        'nn_icu_mortality_model', f'nn_{site_name}_icu_mortality_model'
-    )
+    # Save model - update path to use site-specific directory structure
+    model_path = output_config['model_path'].replace('/{SITE_NAME}/', f'/{site_name}/')
     torch.save({
         'model_state_dict': model.state_dict(),
         'model_config': model_params,
@@ -435,34 +447,9 @@ def train_neural_network():
     print(f"\nModel saved to: {model_path}")
     
     # Save metrics
-    metrics = {
-        'accuracy': float(accuracy),
-        'roc_auc': float(roc_auc),
-        'pr_auc': float(pr_auc),
-        'brier_score': float(brier_score),
-        'expected_calibration_error': float(ece),
-        'confusion_matrix': cm.tolist(),
-        'best_epoch': best_epoch,
-        'training_time': training_time,
-        'total_parameters': total_params,
-        'site_name': site_name,
-        'training_date': datetime.now().isoformat()
-    }
-    
-    metrics_path = output_config['metrics_path'].replace(
-        'metrics.json', f'{site_name}_metrics.json'
-    )
-    with open(metrics_path, 'w') as f:
-        json.dump(metrics, f, indent=2)
-    print(f"Metrics saved to: {metrics_path}")
-    
-    # Generate plots
-    print("\nGenerating evaluation plots...")
-    plot_training_history(history, plots_dir, site_name)
-    plot_evaluation_metrics(test_labels, test_preds, plots_dir, site_name)
-    
-    # Feature importance
+    # Calculate feature importance before saving metrics
     print("\nCalculating feature importance...")
+    feature_importance_dict = {}
     try:
         model.eval()
         X_sample = torch.tensor(X_test.values[:1000], dtype=torch.float32).to(device)
@@ -476,6 +463,13 @@ def train_neural_network():
             X_sample_scaled = X_sample
         
         importance_scores = model.get_feature_importance(X_sample_scaled, method='gradient')
+        
+        # Convert to dictionary format for metrics
+        feature_importance_dict = {
+            feature_columns[i]: float(importance_scores[i]) 
+            for i in range(len(feature_columns))
+        }
+        print(f"Calculated feature importance for {len(feature_importance_dict)} features")
         
         # Create feature importance plot
         feature_importance_df = pd.DataFrame({
@@ -499,6 +493,33 @@ def train_neural_network():
             
     except Exception as e:
         print(f"Warning: Could not calculate feature importance: {e}")
+        feature_importance_dict = {}
+    
+    # Now create metrics with feature importance
+    metrics = {
+        'accuracy': float(accuracy),
+        'roc_auc': float(roc_auc),
+        'pr_auc': float(pr_auc),
+        'brier_score': float(brier_score),
+        'expected_calibration_error': float(ece),
+        'confusion_matrix': cm.tolist(),
+        'feature_importance': feature_importance_dict,
+        'best_epoch': best_epoch,
+        'training_time': training_time,
+        'total_parameters': total_params,
+        'site_name': site_name,
+        'training_date': datetime.now().isoformat()
+    }
+    
+    metrics_path = output_config['metrics_path'].replace('/{SITE_NAME}/', f'/{site_name}/')
+    with open(metrics_path, 'w') as f:
+        json.dump(metrics, f, indent=2)
+    print(f"Metrics saved to: {metrics_path}")
+    
+    # Generate plots
+    print("\nGenerating evaluation plots...")
+    plot_training_history(history, plots_dir, site_name)
+    plot_evaluation_metrics(test_labels, test_preds, plots_dir, site_name)
     
     print("\n✅ Training completed successfully!")
     

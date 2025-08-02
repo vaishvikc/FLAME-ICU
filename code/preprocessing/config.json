@@ -13,7 +13,7 @@
     "gradient_clip_value": 3.2533380262507077
   },
   "data_config": {
-    "preprocessing_path": "../../../protected_outputs/preprocessing",
+    "preprocessing_path": "../../protected_outputs/preprocessing",
     "feature_file": "by_hourly_wide_df.parquet",
     "sequence_length": 24
   },
@@ -22,15 +22,15 @@
     "test_ratio": 0.3,
     "random_state": 42,
     "stratify": true,
-    "train_file": "../../../protected_outputs/intermediate/lstm/train_sequences.pkl",
-    "test_file": "../../../protected_outputs/intermediate/lstm/test_sequences.pkl"
+    "train_file": "/Users/sudo_sage/Documents/WORK/FLAME-ICU/protected_outputs/intermediate/lstm/train_sequences.pkl",
+    "test_file": "/Users/sudo_sage/Documents/WORK/FLAME-ICU/protected_outputs/intermediate/lstm/test_sequences.pkl"
   },
   "output_config": {
-    "model_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/lstm_icu_mortality_model.pt",
-    "scaler_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/feature_scaler.pkl",
-    "feature_cols_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/feature_columns.pkl",
-    "metrics_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/metrics.json",
-    "plots_dir": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/plots"
+    "model_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/lstm_icu_mortality_model.pt",
+    "scaler_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/feature_scaler.pkl",
+    "feature_cols_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/feature_columns.pkl",
+    "metrics_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/metrics.json",
+    "plots_dir": "../../protected_outputs/models_stage_1/MIMIC/lstm/plots"
   },
   "optimization_results": {
     "best_architecture": "Stacked LSTM (64->32)",
