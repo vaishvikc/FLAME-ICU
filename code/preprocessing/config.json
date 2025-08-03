@@ -26,11 +26,11 @@
     "test_file": "/Users/sudo_sage/Documents/WORK/FLAME-ICU/protected_outputs/intermediate/lstm/test_sequences.pkl"
   },
   "output_config": {
-    "model_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/lstm_icu_mortality_model.pt",
-    "scaler_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/feature_scaler.pkl",
-    "feature_cols_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/feature_columns.pkl",
-    "metrics_path": "../../protected_outputs/models_stage_1/MIMIC/lstm/metrics.json",
-    "plots_dir": "../../protected_outputs/models_stage_1/MIMIC/lstm/plots"
+    "model_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/lstm_icu_mortality_model.pt",
+    "scaler_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/feature_scaler.pkl",
+    "feature_cols_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/feature_columns.pkl",
+    "metrics_path": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/metrics.json",
+    "plots_dir": "../../../protected_outputs/models_stage_1/{SITE_NAME}/lstm/plots"
   },
   "optimization_results": {
     "best_architecture": "Stacked LSTM (64->32)",
