@@ -20,6 +20,10 @@
     "gradient_clip_value": 1.0,
     "use_scaling": true
   },
+  "inference_config": {
+    "use_new_scaler": true,
+    "scaling_description": "If true, fit new scaler on inference data to prevent bias from distribution shifts"
+  },
   "data_config": {
     "preprocessing_path": "../../../protected_outputs/preprocessing",
     "feature_file": "by_event_wide_df.parquet",

@@ -111,7 +111,7 @@ def load_model_and_preprocessors(model_path=None, scaler_path=None, feature_cols
     return model, scaler, feature_columns, device
 
 
-def prepare_features(df, feature_columns, scaler=None):
+def prepare_features(df, feature_columns, scaler=None, use_new_scaler=True):
     """
     Prepare features for inference.
     
@@ -119,6 +119,7 @@ def prepare_features(df, feature_columns, scaler=None):
         df: Input DataFrame
         feature_columns: List of expected feature columns
         scaler: Fitted StandardScaler (optional)
+        use_new_scaler: If True, fit new scaler on inference data
         
     Returns:
         Processed feature tensor
@@ -136,11 +137,16 @@ def prepare_features(df, feature_columns, scaler=None):
     # Handle missing values - use median imputation
     X = X.fillna(X.median())
     
-    # Apply scaling if scaler is provided
-    if scaler is not None:
-        X_scaled = scaler.transform(X)
+    # Apply scaling
+    if use_new_scaler or scaler is None:
+        print("Fitting new scaler on inference data...")
+        from sklearn.preprocessing import StandardScaler
+        inference_scaler = StandardScaler()
+        X_scaled = inference_scaler.fit_transform(X)
+        print(f"New scaler fitted with mean shape: {inference_scaler.mean_.shape}")
     else:
-        X_scaled = X.values
+        print("Using saved scaler from training...")
+        X_scaled = scaler.transform(X)
     
     # Convert to tensor
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
@@ -177,7 +183,7 @@ def predict(model, X_tensor, device, batch_size=256):
     return predictions, binary_predictions
 
 
-def predict_from_file(input_file, output_file=None, model_path=None):
+def predict_from_file(input_file, output_file=None, model_path=None, use_new_scaler=True):
     """
     Make predictions from a file containing patient data.
     
@@ -185,6 +191,7 @@ def predict_from_file(input_file, output_file=None, model_path=None):
         input_file: Path to input parquet/csv file
         output_file: Path to save predictions (optional)
         model_path: Path to model (optional, uses config if not provided)
+        use_new_scaler: If True, fit new scaler on inference data (default: True)
         
     Returns:
         DataFrame with predictions
@@ -204,7 +211,7 @@ def predict_from_file(input_file, output_file=None, model_path=None):
     print(f"Loaded {len(df)} records")
     
     # Prepare features
-    X_tensor = prepare_features(df, feature_columns, scaler)
+    X_tensor = prepare_features(df, feature_columns, scaler, use_new_scaler)
     
     # Make predictions
     print("Making predictions...")
@@ -239,13 +246,14 @@ def predict_from_file(input_file, output_file=None, model_path=None):
     return df
 
 
-def predict_single_patient(patient_data, model_path=None):
+def predict_single_patient(patient_data, model_path=None, use_new_scaler=True):
     """
     Make prediction for a single patient.
     
     Args:
         patient_data: Dictionary or Series with patient features
         model_path: Path to model (optional)
+        use_new_scaler: If True, fit new scaler on inference data (default: True)
         
     Returns:
         probability, prediction, risk_category
@@ -262,7 +270,7 @@ def predict_single_patient(patient_data, model_path=None):
         df = patient_data
     
     # Prepare features
-    X_tensor = prepare_features(df, feature_columns, scaler)
+    X_tensor = prepare_features(df, feature_columns, scaler, use_new_scaler)
     
     # Make prediction
     probability, binary_prediction = predict(model, X_tensor, device)

@@ -5,6 +5,7 @@ import json
 import pickle
 import xgboost as xgb
 from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, confusion_matrix
+from sklearn.preprocessing import StandardScaler
 
 def load_config():
     """Load configuration from config file"""
@@ -85,7 +86,7 @@ def prepare_aggregated_data(df, available_features):
     
     return agg_df
 
-def predict_mortality(data_path=None):
+def predict_mortality(data_path=None, use_new_scaler=True):
     """
     Predict ICU mortality using the trained XGBoost model
     
@@ -93,6 +94,9 @@ def predict_mortality(data_path=None):
     -----------
     data_path : str, optional
         Path to the data file (parquet format). If None, uses the path from config.
+    use_new_scaler : bool, optional
+        If True, fit a new scaler on the inference data instead of using the saved scaler.
+        This helps prevent bias from distribution shifts. Default is True.
     
     Returns:
     --------
@@ -165,9 +169,16 @@ def predict_mortality(data_path=None):
     # Handle missing values
     X_filled = np.nan_to_num(X.values, nan=0.0)
     
-    # Scale features using the saved scaler
-    print("Scaling features...")
-    X_scaled = scaler.transform(X_filled)
+    # Scale features
+    if use_new_scaler:
+        print("Fitting new scaler on inference data...")
+        from sklearn.preprocessing import StandardScaler
+        inference_scaler = StandardScaler()
+        X_scaled = inference_scaler.fit_transform(X_filled)
+        print(f"New scaler fitted with mean shape: {inference_scaler.mean_.shape}")
+    else:
+        print("Using saved scaler from training...")
+        X_scaled = scaler.transform(X_filled)
     
     # Create DMatrix for XGBoost
     dmatrix = xgb.DMatrix(X_scaled, feature_names=feature_columns)

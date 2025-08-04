@@ -160,7 +160,7 @@ def load_model_and_metadata():
     
     return model, scaler, feature_cols, data_config['sequence_length']
 
-def predict_mortality(data_path=None):
+def predict_mortality(data_path=None, use_new_scaler=True):
     """
     Predict ICU mortality using the trained LSTM model
     
@@ -168,6 +168,9 @@ def predict_mortality(data_path=None):
     -----------
     data_path : str, optional
         Path to the data file (parquet format). If None, uses the path from config.
+    use_new_scaler : bool, optional
+        If True, fit a new scaler on the inference data instead of using the saved scaler.
+        This helps prevent bias from distribution shifts. Default is True.
     
     Returns:
     --------
@@ -210,7 +213,15 @@ def predict_mortality(data_path=None):
     X_reshape = X.reshape(-1, X.shape[-1])
     
     # Scale features
-    X_scaled = scaler.transform(X_reshape)
+    if use_new_scaler:
+        print("Fitting new scaler on inference data...")
+        from sklearn.preprocessing import StandardScaler
+        inference_scaler = StandardScaler()
+        X_scaled = inference_scaler.fit_transform(X_reshape)
+        print(f"New scaler fitted with mean shape: {inference_scaler.mean_.shape}")
+    else:
+        print("Using saved scaler from training...")
+        X_scaled = scaler.transform(X_reshape)
     
     # Reshape back to 3D
     X_scaled = X_scaled.reshape(X.shape)
