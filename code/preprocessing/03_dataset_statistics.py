@@ -53,8 +53,13 @@ def _():
     import altair as alt
     warnings.filterwarnings('ignore')
 
-    # Enable marimo CSV data transformer for best performance
-    alt.data_transformers.enable('marimo_csv')
+    # Enable marimo CSV data transformer for best performance in marimo UI
+    # Use default transformer when running as script
+    try:
+        alt.data_transformers.enable('marimo_csv')
+    except:
+        # Fallback to default transformer if marimo_csv is not available
+        alt.data_transformers.enable('default')
 
     print("=== ICU Mortality Model - Dataset Statistics ===")
     print("Computing comprehensive statistics for preprocessed datasets...")
@@ -102,7 +107,10 @@ def _(data_path, os, pd):
     # Load event-wide dataset from 02_feature_engineering.ipynb
     event_wide_path = os.path.join(data_path, 'by_event_wide_df.parquet')
 
-    if os.path.exists(event_wide_path):
+    try:
+        if not os.path.exists(event_wide_path):
+            raise FileNotFoundError(f"Event-wide dataset not found at {event_wide_path}. Please run 02_feature_engineering.ipynb first.")
+
         event_wide_df = pd.read_parquet(event_wide_path)
 
         print(f"✅ Loaded event-wide dataset: {event_wide_df.shape}")
@@ -110,8 +118,19 @@ def _(data_path, os, pd):
         print(f"Time range: {event_wide_df['event_time'].min()} to {event_wide_df['event_time'].max()}")
         print(f"Memory usage: {event_wide_df.memory_usage(deep=True).sum() / 1024**2:.1f} MB")
 
-    else:
-        raise FileNotFoundError(f"Event-wide dataset not found at {event_wide_path}. Please run 02_feature_engineering.ipynb first.")
+        # Check for required columns
+        required_cols = ['hospitalization_id', 'event_time', 'disposition']
+        missing_cols = [col for col in required_cols if col not in event_wide_df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing required columns: {missing_cols}")
+
+    except Exception as e:
+        print(f"❌ Error loading data: {str(e)}")
+        print(f"Please ensure that:")
+        print(f"  1. You have run 02_feature_engineering.ipynb successfully")
+        print(f"  2. The output file exists at: {event_wide_path}")
+        print(f"  3. The file contains the required columns")
+        raise
 
     # Display basic info
     print("\nDataset info:")
@@ -149,16 +168,16 @@ def _(event_wide_df, np):
 
     # Get numeric columns
     numeric_columns = event_wide_df.select_dtypes(include=[np.number]).columns.tolist()
-    numeric_columns = [_col for _col in numeric_columns if _col not in exclude_columns]
+    numeric_columns = [col for col in numeric_columns if col not in exclude_columns]
 
     print(f"✅ Identified {len(numeric_columns)} numeric columns for statistics")
     print(f"Total features to analyze: {len(numeric_columns)}")
 
     # Show sample of columns
     print("\nSample numeric columns:")
-    for _i, _col in enumerate(numeric_columns[:10]):
-        non_null_count = event_wide_df[_col].notna().sum()
-        print(f"  {_col}: {non_null_count:,} non-null values")
+    sample_cols_info = [(sample_col, event_wide_df[sample_col].notna().sum()) for sample_col in numeric_columns[:10]]
+    for sample_col, non_null_count in sample_cols_info:
+        print(f"  {sample_col}: {non_null_count:,} non-null values")
     if len(numeric_columns) > 10:
         print(f"  ... and {len(numeric_columns) - 10} more columns")
 
@@ -180,23 +199,27 @@ def _(event_wide_df, np):
                      'dopamine', 'dobutamine', 'propofol', 'fentanyl', 'midazolam']
     resp_keywords = ['mode_category', 'device_category', 'fio2', 'peep']
 
-    for _col in numeric_columns:
-        col_lower = _col.lower()
+    def categorize_column(col):
+        col_lower = col.lower()
         if any(keyword in col_lower for keyword in vitals_keywords):
-            feature_categories['vitals'].append(_col)
+            return 'vitals'
         elif any(keyword in col_lower for keyword in labs_keywords):
-            feature_categories['labs'].append(_col)
+            return 'labs'
         elif any(keyword in col_lower for keyword in meds_keywords):
-            feature_categories['medications'].append(_col)
+            return 'medications'
         elif any(keyword in col_lower for keyword in resp_keywords):
-            feature_categories['respiratory'].append(_col)
+            return 'respiratory'
         else:
-            feature_categories['other'].append(_col)
+            return 'other'
+
+    for feat_col in numeric_columns:
+        col_category = categorize_column(feat_col)
+        feature_categories[col_category].append(feat_col)
 
     print("\nFeature categories:")
-    for _category, _cols in feature_categories.items():
-        if _cols:
-            print(f"  {_category}: {len(_cols)} features")
+    category_info = [(cat, cols) for cat, cols in feature_categories.items() if cols]
+    for cat, cols in category_info:
+        print(f"  {cat}: {len(cols)} features")
 
     return feature_categories, numeric_columns
 
@@ -216,26 +239,33 @@ def _(event_wide_df, np, numeric_columns):
     stats_dict = {}
 
     # Calculate statistics for each numeric column
-    for _col in numeric_columns:
+    def calculate_column_stats(col):
         try:
             # Get the column data
-            col_data = event_wide_df[_col]
+            col_data = event_wide_df[col]
 
-            # Calculate statistics
-            stats_dict[f"{_col}_min"] = col_data.min()
-            stats_dict[f"{_col}_max"] = col_data.max()
-            stats_dict[f"{_col}_mean"] = col_data.mean()
-            stats_dict[f"{_col}_median"] = col_data.median()
-            stats_dict[f"{_col}_missing_pct"] = (col_data.isna().sum() / len(col_data)) * 100
-
+            return {
+                f"{col}_min": col_data.min(),
+                f"{col}_max": col_data.max(),
+                f"{col}_mean": col_data.mean(),
+                f"{col}_median": col_data.median(),
+                f"{col}_missing_pct": (col_data.isna().sum() / len(col_data)) * 100
+            }
         except Exception as e:
-            print(f"Warning: Could not calculate statistics for {_col}: {str(e)}")
-            # Set NaN values for failed calculations
-            stats_dict[f"{_col}_min"] = np.nan
-            stats_dict[f"{_col}_max"] = np.nan
-            stats_dict[f"{_col}_mean"] = np.nan
-            stats_dict[f"{_col}_median"] = np.nan
-            stats_dict[f"{_col}_missing_pct"] = np.nan
+            print(f"Warning: Could not calculate statistics for {col}: {str(e)}")
+            # Return NaN values for failed calculations
+            return {
+                f"{col}_min": np.nan,
+                f"{col}_max": np.nan,
+                f"{col}_mean": np.nan,
+                f"{col}_median": np.nan,
+                f"{col}_missing_pct": np.nan
+            }
+
+    # Calculate all statistics
+    for stats_col in numeric_columns:
+        col_stats = calculate_column_stats(stats_col)
+        stats_dict.update(col_stats)
 
     print(f"✅ Calculated statistics for {len(numeric_columns)} features")
     print(f"Total statistics computed: {len(stats_dict)}")
@@ -270,7 +300,8 @@ def _(event_wide_df, numeric_columns, pd, stats_dict):
 
     # Display sample of statistics
     print("\nSample statistics (first few features):")
-    sample_cols = [_col for _col in summary_df.columns if any(_col.endswith(suffix) for suffix in ['_min', '_max', '_mean', '_median', '_missing_pct'])][:15]
+    suffixes = ['_min', '_max', '_mean', '_median', '_missing_pct']
+    sample_cols = [col for col in summary_df.columns if any(col.endswith(suffix) for suffix in suffixes)][:15]
     if sample_cols:
         print(summary_df[sample_cols].T.to_string())
 
@@ -295,28 +326,28 @@ def _(summary_df):
     print(f"Overall mortality rate: {summary_df['overall_mortality_rate'].iloc[0]:.3f}")
 
     # Statistics summary
-    missing_pct_cols = [_col for _col in summary_df.columns if _col.endswith('_missing_pct')]
+    missing_pct_cols = [col for col in summary_df.columns if col.endswith('_missing_pct')]
     if missing_pct_cols:
-        missing_values = summary_df[missing_pct_cols].iloc[0]
+        missing_pct_values = summary_df[missing_pct_cols].iloc[0]
         print(f"\nMissing data overview:")
-        print(f"  Features with no missing data: {(missing_values == 0).sum()}")
-        print(f"  Features with <10% missing: {(missing_values < 10).sum()}")
-        print(f"  Features with 10-50% missing: {((missing_values >= 10) & (missing_values < 50)).sum()}")
-        print(f"  Features with >50% missing: {(missing_values >= 50).sum()}")
-        print(f"  Average missing percentage: {missing_values.mean():.1f}%")
+        print(f"  Features with no missing data: {(missing_pct_values == 0).sum()}")
+        print(f"  Features with <10% missing: {(missing_pct_values < 10).sum()}")
+        print(f"  Features with 10-50% missing: {((missing_pct_values >= 10) & (missing_pct_values < 50)).sum()}")
+        print(f"  Features with >50% missing: {(missing_pct_values >= 50).sum()}")
+        print(f"  Average missing percentage: {missing_pct_values.mean():.1f}%")
 
         # Show features with highest and lowest missing percentages
         print(f"\nFeatures with lowest missing data:")
-        lowest_missing = missing_values.nsmallest(5)
-        for feature, pct in lowest_missing.items():
-            feature_name = feature.replace('_missing_pct', '')
-            print(f"  {feature_name}: {pct:.1f}% missing")
+        lowest_missing = missing_pct_values.nsmallest(5)
+        for feat_name, pct in lowest_missing.items():
+            feature_display_name = feat_name.replace('_missing_pct', '')
+            print(f"  {feature_display_name}: {pct:.1f}% missing")
 
         print(f"\nFeatures with highest missing data:")
-        highest_missing = missing_values.nlargest(5)
-        for feature, pct in highest_missing.items():
-            feature_name = feature.replace('_missing_pct', '')
-            print(f"  {feature_name}: {pct:.1f}% missing")
+        highest_missing = missing_pct_values.nlargest(5)
+        for feat_name, pct in highest_missing.items():
+            feature_display_name = feat_name.replace('_missing_pct', '')
+            print(f"  {feature_display_name}: {pct:.1f}% missing")
 
     return
 
@@ -381,22 +412,23 @@ def _(mo):
 def _(alt, feature_categories, mo, numeric_columns, pd, summary_df):
     # Prepare data for missing data visualization
     missing_data = []
-    for _col in numeric_columns:
-        if f"{_col}_missing_pct" in summary_df.columns:
-            missing_pct = summary_df[f"{_col}_missing_pct"].iloc[0]
 
-            # Determine category
-            _category = 'other'
-            for _cat, _cols in feature_categories.items():
-                if _col in _cols:
-                    _category = _cat
-                    break
+    def get_feature_category(col, feature_categories):
+        for cat, cols in feature_categories.items():
+            if col in cols:
+                return cat
+        return 'other'
+
+    for miss_col in numeric_columns:
+        if f"{miss_col}_missing_pct" in summary_df.columns:
+            miss_pct_value = summary_df[f"{miss_col}_missing_pct"].iloc[0]
+            miss_col_category = get_feature_category(miss_col, feature_categories)
 
             missing_data.append({
-                'feature': _col,
-                'missing_pct': missing_pct,
-                'category': _category,
-                'completeness': 100 - missing_pct
+                'feature': miss_col,
+                'missing_pct': miss_pct_value,
+                'category': miss_col_category,
+                'completeness': 100 - miss_pct_value
             })
 
     missing_df = pd.DataFrame(missing_data)
@@ -441,16 +473,20 @@ def _(mo):
 def _(alt, mo, numeric_columns, pd, summary_df):
     # Prepare data for statistics visualization
     stats_data = []
-    for _col in numeric_columns:
-        if all(f"{_col}_{stat}" in summary_df.columns for stat in ['min', 'max', 'mean', 'median']):
-            stats_data.append({
-                'feature': _col,
-                'min': summary_df[f"{_col}_min"].iloc[0],
-                'max': summary_df[f"{_col}_max"].iloc[0],
-                'mean': summary_df[f"{_col}_mean"].iloc[0],
-                'median': summary_df[f"{_col}_median"].iloc[0],
-                'missing_pct': summary_df[f"{_col}_missing_pct"].iloc[0] if f"{_col}_missing_pct" in summary_df.columns else 0
-            })
+
+    def get_feature_stats(col, summary_df):
+        return {
+            'feature': col,
+            'min': summary_df[f"{col}_min"].iloc[0],
+            'max': summary_df[f"{col}_max"].iloc[0],
+            'mean': summary_df[f"{col}_mean"].iloc[0],
+            'median': summary_df[f"{col}_median"].iloc[0],
+            'missing_pct': summary_df[f"{col}_missing_pct"].iloc[0] if f"{col}_missing_pct" in summary_df.columns else 0
+        }
+
+    for stat_col in numeric_columns:
+        if all(f"{stat_col}_{stat}" in summary_df.columns for stat in ['min', 'max', 'mean', 'median']):
+            stats_data.append(get_feature_stats(stat_col, summary_df))
 
     stats_viz_df = pd.DataFrame(stats_data)
 
@@ -507,16 +543,63 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
+def _(alt, feature_categories, missing_df, mo, pd):
     mo.md(
         r"""
-        ### Category-wise Feature Analysis").center()
-        mo.hstack([category_bar, category_pie]).center()
-    
-        # Display category details
-        mo.md("#### Category Statistics
+        ### Category-wise Feature Analysis
         """
+    ).center()
+    
+    # Create category-wise summary
+    category_summary = []
+    for cat_name, cat_features in feature_categories.items():
+        if cat_features:
+            # Get missing data for features in this category
+            category_data = missing_df[missing_df['feature'].isin(cat_features)]
+            if not category_data.empty:
+                category_summary.append({
+                    'category': cat_name,
+                    'feature_count': len(cat_features),
+                    'avg_missing_pct': category_data['missing_pct'].mean(),
+                    'min_missing_pct': category_data['missing_pct'].min(),
+                    'max_missing_pct': category_data['missing_pct'].max()
+                })
+    
+    category_summary_df = pd.DataFrame(category_summary)
+    
+    # Create bar chart for feature counts by category
+    category_bar = alt.Chart(category_summary_df).mark_bar().encode(
+        x=alt.X('category:N', title='Category'),
+        y=alt.Y('feature_count:Q', title='Number of Features'),
+        color=alt.Color('category:N', legend=None),
+        tooltip=['category:N', 'feature_count:Q']
+    ).properties(
+        width=400,
+        height=300,
+        title='Feature Count by Category'
     )
+    
+    # Create pie chart for feature distribution
+    category_pie = alt.Chart(category_summary_df).mark_arc().encode(
+        theta=alt.Theta('feature_count:Q'),
+        color=alt.Color('category:N', title='Category'),
+        tooltip=['category:N', 'feature_count:Q', 
+                 alt.Tooltip('avg_missing_pct:Q', format='.1f', title='Avg Missing %')]
+    ).properties(
+        width=400,
+        height=300,
+        title='Feature Distribution by Category'
+    )
+    
+    mo.hstack([category_bar, category_pie]).center()
+    
+    # Display category details
+    mo.md("#### Category Statistics").center()
+    print("\nCategory Summary:")
+    for _, row in category_summary_df.iterrows():
+        print(f"  {row['category']}: {row['feature_count']} features, "
+              f"avg missing: {row['avg_missing_pct']:.1f}%")
+    
     return
 
 
@@ -529,24 +612,19 @@ def _(mo):
 @app.cell
 def _(mo):
     # Create interactive selection for top/bottom features
-    n_features_slider = mo.ui.slider(
-        start=5, 
-        stop=20, 
-        value=10, 
-        step=5,
-        label="Number of features to show"
-    )
+    # Use fixed value when running as script
+    n_features_value = 10
 
     mo.md("### Top and Bottom Features by Missing Data").center()
-    n_features_slider.center()
+    mo.md(f"Showing top {n_features_value} features").center()
 
-    return (n_features_slider,)
+    return (n_features_value,)
 
 
 @app.cell
-def _(alt, missing_df, mo, n_features_slider):
-    # Get top and bottom features based on slider value
-    n_show = n_features_slider.value
+def _(alt, missing_df, mo, n_features_value):
+    # Get top and bottom features based on value
+    n_show = n_features_value
 
     top_complete = missing_df.nsmallest(n_show, 'missing_pct')
     top_missing = missing_df.nlargest(n_show, 'missing_pct')
@@ -581,6 +659,24 @@ def _(alt, missing_df, mo, n_features_slider):
 
 @app.cell
 def _(mo):
+    mo.md(
+        r"""
+        ## 24-Hour Pattern Analysis
+        
+        **Note**: The 24-hour temporal pattern heatmaps have been moved to a separate notebook `04_heatmap.py` for better performance and modularity.
+        
+        To view the heatmaps showing:
+        - Missing data patterns across 24 hours
+        - Maximum and minimum value patterns
+        
+        Please run: `python code/preprocessing/04_heatmap.py`
+        """
+    )
+    return
+
+
+@app.cell
+def _(mo):
     mo.md(r"## Save Results")
     return
 
@@ -606,7 +702,9 @@ def _(os, output_dir, output_path, summary_df):
     print("\n=== Analysis Complete ===") 
     print(f"Summary DataFrame shape: {summary_df.shape}")
     print(f"Features analyzed: {summary_df['total_features_analyzed'].iloc[0]}")
-    print(f"Total statistics generated: {len([_col for _col in summary_df.columns if any(_col.endswith(suffix) for suffix in ['_min', '_max', '_mean', '_median', '_missing_pct'])])}")
+    stat_suffixes = ['_min', '_max', '_mean', '_median', '_missing_pct']
+    stat_cols = [col for col in summary_df.columns if any(col.endswith(suffix) for suffix in stat_suffixes)]
+    print(f"Total statistics generated: {len(stat_cols)}")
 
     return
 
@@ -628,6 +726,8 @@ def _(mo):
         - Feature value distributions
         - Category-wise analysis
         - Top complete and incomplete features
+    
+        **Note**: For 24-hour temporal pattern analysis, please run the separate notebook `04_heatmap.py`.
     
         Next steps: Use these statistics to inform feature selection and preprocessing decisions for model training.
         """
