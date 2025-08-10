@@ -173,10 +173,10 @@ def _(df_24h, feature_categories, pd, tqdm):
     # Calculate missing percentage for all features by hour
     # Check if at least one value exists per hospitalization per hour
     all_coverage_data = {}
-    
+
     # Calculate total number of feature-hour combinations for progress bar
     total_features = sum(len(feat_list) for feat_list in feature_categories.values())
-    
+
     print(f"Processing {total_features} features across 24 hours...")
 
     for cat, feat_list in feature_categories.items():
@@ -184,14 +184,14 @@ def _(df_24h, feature_categories, pd, tqdm):
             continue
 
         coverage_data = []
-        
+
         # Create progress bar for this category
         cat_desc = f"Processing {cat} ({len(feat_list)} features)"
-        
+
         # Process each hour with a progress bar
         for hour in tqdm(sorted(range(24)), desc=cat_desc, leave=False):
             hour_data = df_24h[df_24h['hour_block'] == hour]
-            
+
             # Get unique hospitalizations in this hour
             unique_hospitalizations = hour_data['hospitalization_id'].unique()
             total_hospitalizations = len(unique_hospitalizations)
@@ -202,11 +202,11 @@ def _(df_24h, feature_categories, pd, tqdm):
                     hosp_has_data = hour_data.groupby('hospitalization_id')[feature].apply(
                         lambda x: x.notna().any()
                     )
-                    
+
                     # Count hospitalizations with no data for this feature in this hour
                     hospitalizations_with_data = hosp_has_data.sum()
                     hospitalizations_missing = total_hospitalizations - hospitalizations_with_data
-                    
+
                     # Calculate percentage of hospitalizations missing data
                     missing_pct = (hospitalizations_missing / total_hospitalizations * 100) if total_hospitalizations > 0 else 100
 
@@ -494,6 +494,16 @@ def _(mo):
     - Feature engineering decisions (features with consistent availability)
     - Imputation strategies (understanding missingness patterns at the hospitalization level)
     """
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM
+        """
     )
     return
 

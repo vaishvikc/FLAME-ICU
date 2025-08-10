@@ -243,6 +243,72 @@ def _(cohort_df):
     return category_filters, cohort_ids
 
 
+@app.cell  
+def _(json, os, pd):
+    # Load outlier configuration for data clipping
+    outlier_config_path = os.path.join("..", "..", "outlier_config.json")
+    
+    # If running from project root, adjust path
+    if not os.path.exists(outlier_config_path):
+        outlier_config_path = "outlier_config.json"
+    
+    with open(outlier_config_path, 'r') as f:
+        outlier_config = json.load(f)
+    
+    print("✅ Loaded outlier configuration for data clipping")
+    
+    def apply_outlier_clipping(df, outlier_config, is_hourly=False):
+        """
+        Apply outlier clipping to dataframe columns based on outlier_config
+        
+        Args:
+            df: DataFrame to clip
+            outlier_config: Dictionary with min/max values for each category
+            is_hourly: If True, handles aggregated columns with suffixes (_max, _min, _median)
+        
+        Returns:
+            DataFrame with clipped values
+        """
+        df_clipped = df.copy()
+        total_clipped = 0
+        
+        # Map config categories to actual column categories
+        category_mapping = {
+            'vital_category': ['heart_rate', 'map', 'respiratory_rate', 'spo2', 'temp_c', 'weight_kg', 'height_cm', 'sbp', 'dbp'],
+            'lab_category': list(outlier_config['lab_category'].keys()),
+            'med_category': list(outlier_config['med_category'].keys()),
+            'respiratory_support': ['fio2_set', 'peep_set', 'tidal_volume_set', 'resp_rate_set']
+        }
+        
+        for config_category, limits in outlier_config.items():
+            for column_name, (min_val, max_val) in limits.items():
+                if is_hourly:
+                    # For hourly data, check columns with aggregation suffixes
+                    matching_cols = [col for col in df_clipped.columns 
+                                   if col.startswith(column_name) and 
+                                   any(col.endswith(suffix) for suffix in ['_max', '_min', '_median', '_mean'])]
+                else:
+                    # For wide data, check exact column names
+                    matching_cols = [col for col in df_clipped.columns if col == column_name]
+                
+                for col in matching_cols:
+                    if col in df_clipped.columns:
+                        # Count values outside range before clipping
+                        below_min = (df_clipped[col] < min_val).sum()
+                        above_max = (df_clipped[col] > max_val).sum()
+                        
+                        if below_min > 0 or above_max > 0:
+                            # Apply clipping
+                            df_clipped[col] = df_clipped[col].clip(lower=min_val, upper=max_val)
+                            total_clipped += below_min + above_max
+                            print(f"  Clipped {col}: {below_min} below min, {above_max} above max")
+        
+        print(f"✅ Total values clipped: {total_clipped}")
+        return df_clipped
+    
+    return outlier_config, apply_outlier_clipping
+
+
 @app.cell
 def _(mo):
     mo.md(r"""## Create Wide Dataset Using pyCLIF""")
@@ -424,7 +490,7 @@ def _(hourly_df, wide_df):
 
 
 @app.cell
-def _(cohort_df, os, output_dir, pd, wide_df):
+def _(apply_outlier_clipping, cohort_df, os, outlier_config, output_dir, pd, wide_df):
     # Note: This filtering step is now redundant if cohort_df was used in create_wide_dataset
     # The data is already filtered to the 24-hour windows during the wide dataset creation
     # However, we'll keep this for backward compatibility and verification
@@ -450,14 +516,19 @@ def _(cohort_df, os, output_dir, pd, wide_df):
     print(f"All events within window: {((wide_df_filtered['event_time'] >= wide_df_filtered['hour_24_start_dttm']) & (wide_df_filtered['event_time'] <= wide_df_filtered['hour_24_end_dttm'])).all()}")
     print(f"Average records per hospitalization: {len(wide_df_filtered) / wide_df_filtered['hospitalization_id'].nunique():.1f}")
     print('Shape: after filtering:', wide_df_filtered.shape)
+    
+    # Apply outlier clipping before saving
+    print("\n📊 Applying outlier clipping to wide dataset...")
+    wide_df_clipped = apply_outlier_clipping(wide_df_filtered, outlier_config, is_hourly=False)
+    print(f"Shape after clipping: {wide_df_clipped.shape}")
 
-    wide_df_filtered.to_parquet(os.path.join(output_dir, 'by_event_wide_df.parquet'), index=False)
+    wide_df_clipped.to_parquet(os.path.join(output_dir, 'by_event_wide_df.parquet'), index=False)
 
-    return (wide_df_filtered,)
+    return (wide_df_clipped,)
 
 
 @app.cell
-def _(cohort_df, hourly_df, os, output_dir, pd):
+def _(apply_outlier_clipping, cohort_df, hourly_df, os, outlier_config, output_dir, pd):
     # Filter hourly dataset to 24-hour windows
     print("\nFiltering hourly dataset to 24-hour windows...| Shape:",hourly_df.shape)
     # Merge with cohort to get time windows
@@ -479,19 +550,25 @@ def _(cohort_df, hourly_df, os, output_dir, pd):
     print(f"Average records per hospitalization: {len(hourly_df_filtered) / hourly_df_filtered['hospitalization_id'].nunique():.1f}")
 
     print('Shape:', hourly_df_filtered.shape)
-    hourly_df_filtered.to_parquet(os.path.join(output_dir, 'by_hourly_wide_df.parquet'), index=False)
+    
+    # Apply outlier clipping before saving
+    print("\n📊 Applying outlier clipping to hourly dataset...")
+    hourly_df_clipped = apply_outlier_clipping(hourly_df_filtered, outlier_config, is_hourly=True)
+    print(f"Shape after clipping: {hourly_df_clipped.shape}")
+    
+    hourly_df_clipped.to_parquet(os.path.join(output_dir, 'by_hourly_wide_df.parquet'), index=False)
 
     print(f"\n✅ Feature engineering completed successfully!")
     print(f"Event-level data saved to: {os.path.join(output_dir, 'by_event_wide_df.parquet')}")
     print(f"Hourly data saved to: {os.path.join(output_dir, 'by_hourly_wide_df.parquet')}")
 
-    return (hourly_df_filtered,)
+    return (hourly_df_clipped,)
 
 
 @app.cell
-def _(hourly_df_filtered):
+def _(hourly_df_clipped):
     print("Hourly dataset columns:")
-    print(hourly_df_filtered.columns.tolist())
+    print(hourly_df_clipped.columns.tolist())
     return
 
 
