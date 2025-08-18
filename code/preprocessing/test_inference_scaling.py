@@ -97,7 +97,7 @@ def verify_model_configs():
     print("\nVerifying Model Configurations")
     print("=" * 50)
     
-    models = ['xgboost', 'lstm', 'nn']
+    models = ['xgboost', 'nn']
     all_updated = True
     
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -11,12 +11,6 @@ code/
 │   ├── 02_feature_engineering.ipynb  # Feature engineering
 │   └── config_demo.json              # Shared configuration
 ├── models/                           # Model implementations
-│   ├── lstm/                         # LSTM model
-│   │   ├── training.py
-│   │   ├── inference.py
-│   │   ├── transfer_learning.py
-│   │   ├── config.json
-│   │   └── README.md
 │   ├── xgboost/                      # XGBoost model
 │   │   ├── training.py
 │   │   ├── inference.py
@@ -41,7 +35,6 @@ code/
     │   ├── by_event_wide_df.parquet  # Event-level features
     │   └── by_hourly_wide_df.parquet # Hourly features
     └── models/                       # Model-specific outputs
-        ├── lstm/                     # LSTM artifacts
         ├── xgboost/                  # XGBoost artifacts
         └── federated/                # Federated learning artifacts
 ```
@@ -67,10 +60,6 @@ These will create standardized outputs in `output/preprocessing/` that can be us
 Each model can be trained independently:
 
 ```bash
-# LSTM
-cd models/lstm
-python training.py
-
 # XGBoost
 cd models/xgboost
 python training.py
@@ -85,10 +74,6 @@ python simulate_multisite.py
 Run inference using the respective scripts:
 
 ```bash
-# LSTM
-cd models/lstm
-python inference.py
-
 # XGBoost
 cd models/xgboost
 python inference.py

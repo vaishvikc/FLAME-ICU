@@ -339,7 +339,7 @@ output/
 │   │   ├── base_model.json
 │   │   ├── site_*/
 │   │   └── ensemble/
-│   ├── lstm/
+│   ├── nn/
 │   │   ├── base_model.pt
 │   │   ├── site_*/
 │   │   └── averaged/
@@ -454,7 +454,7 @@ graph TD
 | Model Type | Training Data | Testing | Expected Performance |
 |------------|---------------|---------|---------------------|
 | XGBoost Site-Specific | Local site data only | Local + Cross-site | Overfit to local patterns |
-| LSTM Site-Specific | Local site data only | Local + Cross-site | Poor generalization |
+| NN Site-Specific | Local site data only | Local + Cross-site | Poor generalization |
 
 #### Method 2: Transfer Learning Models
 **Description**: Pre-train at Site 1, then fine-tune at each site
@@ -462,7 +462,7 @@ graph TD
 | Model Type | Base Training | Fine-tuning | Expected Performance |
 |------------|---------------|-------------|---------------------|
 | XGBoost Transfer | Site 1 data | Each site data | Better generalization |
-| LSTM Transfer | Site 1 data | Each site data | Improved local adaptation |
+| NN Transfer | Site 1 data | Each site data | Improved local adaptation |
 
 #### Method 3: Federated Ensemble/Averaging
 **Description**: Combine models from all sites through aggregation
@@ -470,7 +470,7 @@ graph TD
 | Aggregation Method | Input Models | Combination Strategy | Expected Performance |
 |-------------------|--------------|---------------------|---------------------|
 | XGBoost Ensemble | All site models | Voting/Averaging predictions | Robust across sites |
-| LSTM Weight Averaging | All site models | Average model weights | Stable performance |
+| NN Weight Averaging | All site models | Average model weights | Stable performance |
 
 #### Method 4: WUPERR Federated Learning
 **Description**: Sequential learning across sites with catastrophic forgetting prevention
@@ -492,8 +492,8 @@ for site in {1..8}; do
         --data_path data/sites/site_${site}_data.parquet \
         --output_suffix "_site_specific"
     
-    # LSTM site-specific
-    python code/models/lstm/training.py \
+    # NN site-specific
+    python code/models/nn/training.py \
         --site_id $site \
         --data_path data/sites/site_${site}_data.parquet \
         --output_suffix "_site_specific"
@@ -504,7 +504,7 @@ done
 ```bash
 # Base model training at Site 1
 python code/models/xgboost/training.py --site_id 1 --save_as_base
-python code/models/lstm/training.py --site_id 1 --save_as_base
+python code/models/nn/training.py --site_id 1 --save_as_base
 
 # Transfer learning at sites 2-8
 for site in {2..8}; do
@@ -513,8 +513,8 @@ for site in {2..8}; do
         --site_id $site \
         --fine_tune_epochs 50
     
-    python code/models/lstm/transfer_learning.py \
-        --base_model output/models/lstm/base_model.pt \
+    python code/models/nn/transfer_learning.py \
+        --base_model output/models/nn/base_model.pt \
         --site_id $site \
         --fine_tune_epochs 20
 done
@@ -528,10 +528,10 @@ python code/models/xgboost/ensemble.py \
     --input_models "output/models/xgboost/site_*/model.json" \
     --output_model output/models/xgboost/ensemble_model.json
 
-# LSTM Weight Averaging
-python code/models/lstm/weight_average.py \
-    --input_models "output/models/lstm/site_*/model.pt" \
-    --output_model output/models/lstm/averaged_model.pt \
+# NN Weight Averaging
+python code/models/nn/weight_average.py \
+    --input_models "output/models/nn/site_*/model.pt" \
+    --output_model output/models/nn/averaged_model.pt \
     --averaging_method "uniform"
 ```
 

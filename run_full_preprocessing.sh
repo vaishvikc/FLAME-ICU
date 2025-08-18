@@ -153,7 +153,7 @@ check_dependencies() {
     print_substep "Configuration file: ✓"
     
     # Check model config files exist
-    local model_dirs=("code/models/lstm" "code/models/xgboost" "code/models/nn")
+    local model_dirs=("code/models/xgboost" "code/models/nn")
     for model_dir in "${model_dirs[@]}"; do
         if [ -f "$SCRIPT_DIR/$model_dir/config.json" ]; then
             print_substep "Model config ($model_dir): ✓"
@@ -240,11 +240,6 @@ validate_outputs() {
     validate_file "$intermediate_data/test_df.parquet" "Test Data" 1 || ((errors++))
     validate_file "$intermediate_data/split_metadata.json" "Split Metadata" 0 || ((errors++))
     
-    # LSTM sequences
-    local lstm_data="$SCRIPT_DIR/protected_outputs/intermediate/lstm"
-    validate_file "$lstm_data/train_sequences.pkl" "LSTM Training Sequences" 1 || ((errors++))
-    validate_file "$lstm_data/test_sequences.pkl" "LSTM Test Sequences" 0 || ((errors++))
-    validate_file "$lstm_data/split_metadata.json" "LSTM Split Metadata" 0 || ((errors++))
     
     if [ $errors -eq 0 ]; then
         print_success "All output files validated successfully"
@@ -282,10 +277,10 @@ run_phase1_core_preprocessing() {
 run_phase2_data_splitting() {
     print_header "PHASE 2: MODEL-SPECIFIC DATA SPLITTING"
     
-    show_progress 0 3 "Starting data splitting..."
+    show_progress 0 2 "Starting data splitting..."
     
     # Step 1: XGBoost Data Splitting
-    show_progress 1 3 "Splitting XGBoost data..."
+    show_progress 1 2 "Splitting XGBoost data..."
     print_step "Running XGBoost data splitter..."
     if source "$SCRIPT_DIR/flameICU/bin/activate" && \
        cd "$SCRIPT_DIR/code/preprocessing" && \
@@ -296,20 +291,8 @@ run_phase2_data_splitting() {
         exit 1
     fi
     
-    # Step 2: LSTM Data Splitting
-    show_progress 2 3 "Splitting LSTM data..."
-    print_step "Running LSTM data splitter..."
-    if source "$SCRIPT_DIR/flameICU/bin/activate" && \
-       cd "$SCRIPT_DIR/code/preprocessing" && \
-       python3 lstm_data_split.py 2>&1 | tee -a "$LOG_FILE"; then
-        print_success "LSTM data splitting completed"
-    else
-        print_error "LSTM data splitting failed"
-        exit 1
-    fi
-    
-    # Step 3: Neural Network Data Preparation
-    show_progress 3 3 "Preparing NN data..."
+    # Step 2: Neural Network Data Preparation
+    show_progress 2 2 "Preparing NN data..."
     print_step "Neural Network data uses the same splits as XGBoost"
     print_substep "NN data preparation handled by nn_data_loader.py during training"
     
@@ -364,7 +347,6 @@ generate_summary_report() {
         
         echo "PHASE 2: MODEL-SPECIFIC DATA SPLITTING"
         echo "  ✓ XGBoost Data Splitting (xgboost_data_splitter.py)"
-        echo "  ✓ LSTM Data Splitting (lstm_data_split.py)"
         echo "  ✓ Neural Network Data Preparation"
         echo ""
         
@@ -406,23 +388,16 @@ generate_summary_report() {
             echo "  - Test Data: test_df.parquet ($((size / 1024 / 1024))MB)"
         fi
         
-        local lstm_data="$SCRIPT_DIR/protected_outputs/intermediate/lstm"
-        if [ -f "$lstm_data/train_sequences.pkl" ]; then
-            local size=$(stat -f%z "$lstm_data/train_sequences.pkl" 2>/dev/null || stat -c%s "$lstm_data/train_sequences.pkl" 2>/dev/null)
-            echo "  - LSTM Training Sequences: train_sequences.pkl ($((size / 1024 / 1024))MB)"
-        fi
         
         echo ""
         echo "NEXT STEPS:"
         echo "1. Review the preprocessing outputs in ../protected_outputs/"
         echo "2. Check data quality using the dataset statistics"
         echo "3. Run model training scripts:"
-        echo "   - LSTM: cd ../models/lstm && python3 training.py"
         echo "   - XGBoost: cd ../models/xgboost && python3 training.py"
         echo "   - Neural Network: cd ../models/nn && python3 training.py"
         echo ""
         echo "4. Use optimization scripts if needed:"
-        echo "   - LSTM: cd ../models/lstm && ./run_optimization.sh"
         echo "   - XGBoost: cd ../models/xgboost && ./train_at_site.sh"
         echo ""
         echo "==============================================================================="
@@ -453,10 +428,8 @@ create_output_directories() {
         "protected_outputs/preprocessing"
         "protected_outputs/intermediate"
         "protected_outputs/intermediate/data"
-        "protected_outputs/intermediate/lstm"
         "protected_outputs/intermediate/nn"
         "protected_outputs/models"
-        "protected_outputs/models/lstm"
         "protected_outputs/models/xgboost"
         "protected_outputs/models/nn"
         "logs"

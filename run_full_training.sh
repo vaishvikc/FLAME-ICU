@@ -4,9 +4,8 @@
 # FLAME-ICU Complete Model Training Pipeline (Simplified)
 # ===============================================================================
 # This script runs the complete model training pipeline:
-# 1. LSTM model training
-# 2. XGBoost model training  
-# 3. Neural Network model training
+# 1. XGBoost model training  
+# 2. Neural Network model training
 # All models are saved in site-specific directories under models_stage_1/
 # ===============================================================================
 
@@ -51,8 +50,6 @@ check_dependencies() {
         "protected_outputs/preprocessing/by_hourly_wide_df.parquet"
         "protected_outputs/intermediate/data/train_df.parquet"
         "protected_outputs/intermediate/data/test_df.parquet"
-        "protected_outputs/intermediate/lstm/train_sequences.pkl"
-        "protected_outputs/intermediate/lstm/test_sequences.pkl"
     )
     
     echo "Checking preprocessing outputs..."
@@ -100,7 +97,7 @@ create_output_directories() {
     echo "Setting up output directories..."
     
     # Create site-specific model directories
-    local model_types=("lstm" "xgboost" "nn")
+    local model_types=("xgboost" "nn")
     
     for model in "${model_types[@]}"; do
         local dir="protected_outputs/models_stage_1/$SITE_NAME/$model"
@@ -135,9 +132,6 @@ main() {
     echo "==============================================================================="
     echo "MODEL TRAINING PHASE"
     echo "==============================================================================="
-    
-    # Train LSTM
-    train_model "lstm" "code/models/lstm" "LSTM Model"
     
     # Train XGBoost
     train_model "xgboost" "code/models/xgboost" "XGBoost Model"

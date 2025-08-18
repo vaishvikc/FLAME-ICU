@@ -320,17 +320,17 @@ params = {
 }
 ```
 
-### Ensemble with LSTM
+### Ensemble with Neural Network
 
-Combine XGBoost with LSTM predictions:
+Combine XGBoost with Neural Network predictions:
 ```python
 # Simple averaging
-final_prob = 0.6 * xgb_prob + 0.4 * lstm_prob
+final_prob = 0.6 * xgb_prob + 0.4 * nn_prob
 
 # Weighted by performance
-xgb_weight = xgb_auc / (xgb_auc + lstm_auc)
-lstm_weight = lstm_auc / (xgb_auc + lstm_auc)
-final_prob = xgb_weight * xgb_prob + lstm_weight * lstm_prob
+xgb_weight = xgb_auc / (xgb_auc + nn_auc)
+nn_weight = nn_auc / (xgb_auc + nn_auc)
+final_prob = xgb_weight * xgb_prob + nn_weight * nn_prob
 ```
 
 ### Export for Production
