@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.14.15"
+__generated_with = "0.15.2"
 app = marimo.App(width="full")
 
 
@@ -12,7 +12,8 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(r"""
+    mo.md(
+        r"""
     # ICU Mortality Model - Cohort Generation
 
     This notebook generates the ICU cohort for mortality prediction modeling following the PRD requirements.
@@ -32,7 +33,8 @@ def _(mo):
     - Minimum 24-hour ICU stay
     - Adults (≥18 years)
     - 2020-2021 data
-    """)
+    """
+    )
     return
 
 
@@ -44,46 +46,34 @@ def _(mo):
 
 @app.cell
 def _():
-    import sys
     import os
+    import sys
+    sys.path.append('..')
+    from config_helper import get_project_root, ensure_dir, get_output_path, load_config
+    return ensure_dir, get_output_path, load_config, os, sys
+
+
+@app.cell
+def _(os, sys):
+
+
     sys.path.append(os.path.join('..', 'src'))
+    sys.path.append(os.path.join('..', 'utils'))
 
     import pandas as pd
     import numpy as np
-    from pyclif import CLIF
+    from clifpy.tables import Adt, Hospitalization, Patient
     import json
     import warnings
     warnings.filterwarnings('ignore')
 
     print("=== ICU Mortality Model - Cohort Generation ===")
     print("Setting up environment...")
-    return CLIF, json, np, os, pd
+    return Adt, Hospitalization, Patient, json, pd
 
 
 @app.cell
-def _(json, os):
-    def load_config():
-        """Load configuration from config.json"""
-        # Try top-level config_demo.json first (new location)
-        config_path = os.path.join("..", "..", "config_demo.json")
-        
-        # If running from project root, adjust path
-        if not os.path.exists(config_path):
-            config_path = "config_demo.json"
-
-        if not os.path.exists(config_path):
-            # Fallback to local config_demo.json
-            config_path = "config_demo.json"
-
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as file:
-                config = json.load(file)
-            print(f"✅ Loaded configuration from {config_path}")
-        else:
-            raise FileNotFoundError(f"Configuration file not found. Tried: {config_path}")
-
-        return config
-
+def _(load_config):
     # Load configuration
     config = load_config()
     print(f"Site: {config['site']}")
@@ -93,40 +83,41 @@ def _(json, os):
 
 
 @app.cell
-def _(CLIF, config):
-    # Initialize pyCLIF
-    clif = CLIF(
-        data_dir=config['clif2_path'],
-        filetype=config['filetype'],
-        timezone="US/Eastern"
-    )
-
-    print("✅ pyCLIF initialized successfully")
-    return (clif,)
-
-
-@app.cell
 def _(mo):
     mo.md(r"""## Data Loading and Preparation""")
     return
 
 
 @app.cell
-def _(clif):
-    # Load required tables using pyCLIF
+def _(Adt, Hospitalization, Patient, config):
+    # Load required tables using clifpy
     print("Loading required tables...")
-    clif.initialize(["adt", "hospitalization", "patient"])
 
     # Load ADT data
-    adt_df = clif.adt.df.copy()
+    adt_table = Adt.from_file(
+        data_directory=config['clif2_path'],
+        filetype=config['filetype'],
+        timezone="US/Eastern"
+    )
+    adt_df = adt_table.df.copy()
     print(f"ADT data loaded: {len(adt_df)} records")
 
     # Load hospitalization data
-    hosp_df = clif.hospitalization.df.copy()
+    hosp_table = Hospitalization.from_file(
+        data_directory=config['clif2_path'],
+        filetype=config['filetype'],
+        timezone="US/Eastern"
+    )
+    hosp_df = hosp_table.df.copy()
     print(f"Hospitalization data loaded: {len(hosp_df)} records")
 
     # Load patient data
-    patient_df = clif.patient.df.copy()
+    patient_table = Patient.from_file(
+        data_directory=config['clif2_path'],
+        filetype=config['filetype'],
+        timezone="US/Eastern"
+    )
+    patient_df = patient_table.df.copy()
     print(f"Patient data loaded: {len(patient_df)} records")
     return adt_df, hosp_df, patient_df
 
@@ -162,7 +153,7 @@ def _(adt_df, hosp_df, pd):
     icu_data['location_category'] = icu_data['location_category'].str.upper()
 
     print("✅ Data preparation completed")
-    return icu_data, pd
+    return (icu_data,)
 
 
 @app.cell
@@ -187,7 +178,7 @@ def _(icu_data, pd):
         (icu_data['location_category'] == 'ICU') &
         (icu_data['in_dttm'] >= icu_data['admission_dttm']) &
         (icu_data['in_dttm'] <= icu_data['admission_dttm'] + pd.Timedelta(hours=48)) &
-       # (icu_data['admission_dttm'].dt.year >= 2020) & (icu_data['admission_dttm'].dt.year <= 2021) &
+        (icu_data['admission_dttm'].dt.year >= 2018) & (icu_data['admission_dttm'].dt.year <= 2024) &
         (icu_data['age_at_admission'] >= 18) & (icu_data['age_at_admission'].notna())
     ]['hospitalization_id'].unique()
 
@@ -200,7 +191,7 @@ def _(icu_data, pd):
     ].reset_index(drop=True)
 
     print(f"Filtered data for processing: {len(icu_data_filtered)} records")
-    return icu_data_filtered, pd
+    return (icu_data_filtered,)
 
 
 @app.cell
@@ -223,7 +214,7 @@ def _(icu_data_filtered, pd):
     icu_data_sorted.loc[icu_data_sorted['location_category'] == 'OR', 'location_category'] = 'ICU'
 
     print(f"After ICU-OR-ICU processing: {len(icu_data_sorted)} records")
-    return icu_data_sorted, pd
+    return (icu_data_sorted,)
 
 
 @app.cell
@@ -245,7 +236,7 @@ def _(icu_data_sorted):
     ).reset_index()
 
     print(f"Grouped data: {len(icu_data_grouped)} records")
-    return icu_data_grouped, pd
+    return (icu_data_grouped,)
 
 
 @app.cell
@@ -272,7 +263,7 @@ def _(icu_data_grouped, pd):
     icu_data_final = icu_data_final[['patient_id', 'hospitalization_id', 'min_in_dttm', 'max_out_dttm', 'after_24hr', 'age', 'dispo']]
 
     print("✅ ICU cohort criteria applied")
-    return icu_data_final, pd
+    return (icu_data_final,)
 
 
 @app.cell
@@ -305,7 +296,7 @@ def _(icu_data_final, patient_df, pd):
     icu_data_demo = icu_data_demo[~icu_data_demo['sex'].isna()].reset_index(drop=True)
 
     print(f"Final cohort with demographics: {len(icu_data_demo)} records")
-    return icu_data_demo, pd
+    return (icu_data_demo,)
 
 
 @app.cell
@@ -347,7 +338,7 @@ def _(icu_data_demo):
 
     print(f"✅ Final cohort created: {len(cohort_final)} hospitalizations")
     print(f"Mortality rate: {cohort_final['disposition'].mean():.3f}")
-    return cohort_final,
+    return (cohort_final,)
 
 
 @app.cell
@@ -391,17 +382,11 @@ def _(mo):
 
 
 @app.cell
-def _(cohort_final, json, os):
-    # Save cohort to protected_outputs/preprocessing directory
-    output_path = os.path.join('..', '..', 'protected_outputs', 'preprocessing', 'icu_cohort.parquet')
-    
-    # If running from project root, adjust path
-    if not os.path.exists(os.path.dirname(output_path)):
-        output_path = os.path.join('protected_outputs', 'preprocessing', 'icu_cohort.parquet')
-    
-    # Create directory if it doesn't exist
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+def _(cohort_final, ensure_dir, get_output_path, json, os):
+    # Save cohort using simple helper for path management
+    output_path = get_output_path('preprocessing', 'icu_cohort.parquet')
+    ensure_dir(output_path)
+
     cohort_final.to_parquet(output_path, index=False)
 
     print(f"✅ Cohort saved to: {output_path}")
@@ -425,17 +410,15 @@ def _(cohort_final, json, os):
         }
     }
 
-    metadata_path = os.path.join('..', '..', 'protected_outputs', 'preprocessing', 'cohort_metadata.json')
-    
-    # If running from project root, adjust path
-    if not os.path.exists(os.path.dirname(metadata_path)):
-        metadata_path = os.path.join('protected_outputs', 'preprocessing', 'cohort_metadata.json')
+    metadata_path = get_output_path('preprocessing', 'cohort_metadata.json')
+    ensure_dir(metadata_path)
+
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
 
     print(f"✅ Metadata saved to: {metadata_path}")
     print("\n🎉 Cohort generation completed successfully!")
-    return metadata, output_path
+    return
 
 
 if __name__ == "__main__":

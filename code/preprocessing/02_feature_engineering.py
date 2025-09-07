@@ -58,125 +58,118 @@ def _(mo):
 def _():
     import sys
     import os
-    sys.path.append(os.path.join('..', 'src'))
+    sys.path.append('..')
+    from config_helper import get_project_root, ensure_dir, get_output_path, load_config
 
     import pandas as pd
     import numpy as np
-    from pyclif import CLIF
-    from pyclif.utils.wide_dataset import convert_wide_to_hourly
+    from clifpy import ClifOrchestrator
+    from clifpy.utils.outlier_handler import apply_outlier_handling
     import json
     import warnings
     warnings.filterwarnings('ignore')
 
     print("=== ICU Mortality Model - Feature Engineering ===")
     print("Setting up environment...")
-    return CLIF, convert_wide_to_hourly, json, os, pd
+    return ClifOrchestrator, apply_outlier_handling, ensure_dir, get_output_path, json, load_config, os, pd
 
 
 @app.cell
-def _(json, os):
-    def load_config():
-        """Load configuration from config.json or config_demo.json"""
-        # Try top-level config_demo.json first (new location)
-        config_path = os.path.join("..", "..", "config_demo.json")
-
-        # If running from project root, adjust path
-        if not os.path.exists(config_path):
-            config_path = "config_demo.json"
-
-        if not os.path.exists(config_path):
-            # Try config.json in same location
-            config_path = os.path.join("..", "..", "config.json")
-
-        if not os.path.exists(config_path):
-            # Fallback to local config_demo.json
-            config_path = "config_demo.json"
-
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as file:
-                config = json.load(file)
-            print(f"✅ Loaded configuration from {os.path.basename(config_path)}")
-        else:
-            raise FileNotFoundError("Configuration file not found. Please create config.json or config_demo.json based on the config_template.")
-
-        return config
-
-    # Load configuration
+def _(load_config, get_output_path, ensure_dir):
+    # Load configuration using config_helper
     config = load_config()
     print(f"Site: {config['site']}")
     print(f"Data path: {config['clif2_path']}")
     print(f"File type: {config['filetype']}")
 
-    # Ensure the directory exists
-    # Get the current working directory to determine where we're running from
-    cwd = os.getcwd()
-    print(f"Current working directory: {cwd}")
-
-    # Check if we're in the code/preprocessing directory or the project root
-    if cwd.endswith(('code/preprocessing', 'code\\preprocessing')):
-        output_dir = os.path.join('..', '..', 'protected_outputs', 'preprocessing')
-    else:
-        # Assume we're at project root
-        output_dir = os.path.join('protected_outputs', 'preprocessing')
-
-    # Convert to absolute path for consistency
-    output_dir = os.path.abspath(output_dir)
+    # Set up output directory using standardized helper
+    output_dir = get_output_path('preprocessing', '')
+    ensure_dir(output_dir)
     print(f"Output directory: {output_dir}")
-
-    os.makedirs(output_dir, exist_ok=True)
 
     return config, output_dir
 
 
 @app.cell
-def _(CLIF, config):
-    # Initialize pyCLIF
-    clif = CLIF(
-        data_dir=config['clif2_path'],
+def _(os, output_dir, pd):
+    # Load ICU cohort from 01_cohort.py
+    cohort_path = os.path.join(output_dir, 'icu_cohort.parquet')
+    
+    if os.path.exists(cohort_path):
+        cohort_df = pd.read_parquet(cohort_path)
+        print(f"✅ Cohort loaded successfully: {len(cohort_df)} hospitalizations")
+        print(f"Mortality rate: {cohort_df['disposition'].mean():.3f}")
+        
+        # Convert datetime columns
+        datetime_cols = ['start_dttm', 'hour_24_start_dttm', 'hour_24_end_dttm']
+        for _col in datetime_cols:
+            cohort_df[_col] = pd.to_datetime(cohort_df[_col])
+        
+        print(f"Time range: {cohort_df['start_dttm'].min()} to {cohort_df['start_dttm'].max()}")
+        
+        # Display sample
+        print("\nSample cohort records:")
+        print(cohort_df.head())
+    else:
+        raise FileNotFoundError(f"Cohort file not found at {cohort_path}. Please run 01_cohort.py first.")
+    
+    return (cohort_df,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Initialize ClifOrchestrator and Load Tables""")
+    return
+
+
+@app.cell
+def _(ClifOrchestrator, config):
+    # Initialize ClifOrchestrator
+    clif = ClifOrchestrator(
+        data_directory=config['clif2_path'],
         filetype=config['filetype'],
         timezone="US/Eastern"
     )
-
-    print("✅ pyCLIF initialized successfully")
+    
+    # Load required tables for feature engineering
+    print("Loading required tables...")
+    
+    tables_to_load = ['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous']
+    for table_name in tables_to_load:
+        print(f"Loading {table_name} table...")
+        clif.load_table(table_name)
+    
+    # Load hospitalization table to get admission_dttm for temporal split
+    print("Loading hospitalization table for temporal split...")
+    clif.load_table('hospitalization')
+    
+    print("✅ ClifOrchestrator initialized and tables loaded successfully")
     return (clif,)
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Load ICU Cohort""")
+    mo.md(r"""## Apply Outlier Handling""")
     return
 
 
 @app.cell
-def _(os, output_dir, pd):
-    # Load ICU cohort from 01_cohort.ipynb
-    cohort_path = os.path.join(output_dir, 'icu_cohort.parquet')
-
-    # Debug path resolution
-    print(f"Looking for cohort file at: {cohort_path}")
-    print(f"Output dir exists: {os.path.exists(output_dir)}")
-    print(f"Files in output dir: {os.listdir(output_dir) if os.path.exists(output_dir) else 'Directory not found'}")
-
-    if os.path.exists(cohort_path):
-        cohort_df = pd.read_parquet(cohort_path)
-        print(f"✅ Cohort loaded successfully: {len(cohort_df)} hospitalizations")
-        print(f"Mortality rate: {cohort_df['disposition'].mean():.3f}")
-
-        # Convert datetime columns
-        datetime_cols = ['start_dttm', 'hour_24_start_dttm', 'hour_24_end_dttm']
-        for _col in datetime_cols:
-            cohort_df[_col] = pd.to_datetime(cohort_df[_col])
-
-        print(f"Time range: {cohort_df['start_dttm'].min()} to {cohort_df['start_dttm'].max()}")
-
-    else:
-        raise FileNotFoundError(f"Cohort file not found at {cohort_path}. Please run 01_cohort.ipynb first.")
-
-    # Display sample
-    print("\nSample cohort records:")
-    print(cohort_df.head())
-
-    return (cohort_df,)
+def _(apply_outlier_handling, clif):
+    # Apply outlier handling to all loaded tables using clifpy
+    print("Applying outlier handling to loaded tables...")
+    
+    tables_for_outlier_handling = ['vitals', 'labs', 'respiratory_support']
+    
+    for table_name in tables_for_outlier_handling:
+        table_obj = getattr(clif, table_name)
+        if table_obj is not None:
+            print(f"\nProcessing {table_name} table:")
+            apply_outlier_handling(table_obj)
+        else:
+            print(f"Warning: {table_name} table not loaded")
+    
+    print("\n✅ Outlier handling completed for all tables")
+    return
 
 
 @app.cell
@@ -189,21 +182,11 @@ def _(mo):
 def _(cohort_df):
     # Define feature extraction configuration
     print("Configuring feature extraction...")
-
-    # OPTION: Set to True for development/testing with smaller dataset
-    USE_SAMPLE_DATA = False  # Set to True to use sample for faster processing
-    SAMPLE_SIZE = 100  # Number of hospitalizations to sample
-
+    
     # Get hospitalization IDs from cohort
-    if USE_SAMPLE_DATA:
-        print(f"⚠️ Using sample data with {SAMPLE_SIZE} hospitalizations for testing")
-        cohort_sample = cohort_df.sample(n=min(SAMPLE_SIZE, len(cohort_df)), random_state=42)
-        cohort_ids = cohort_sample['hospitalization_id'].astype(str).unique().tolist()
-        print(f"Sampled {len(cohort_ids)} hospitalizations from {len(cohort_df)} total")
-    else:
-        cohort_ids = cohort_df['hospitalization_id'].astype(str).unique().tolist()
-        print(f"Using full dataset: {len(cohort_ids)} hospitalizations")
-
+    cohort_ids = cohort_df['hospitalization_id'].astype(str).unique().tolist()
+    print(f"Processing {len(cohort_ids)} hospitalizations from cohort")
+    
     # Define category filters for each table
     category_filters = {
         'vitals': [  # Common vital signs
@@ -233,190 +216,140 @@ def _(cohort_df):
             'mode_category', 'device_category', 'fio2_set'
         ]
     }
-
+    
     print("\nFeature extraction configuration:")
     for table, categories in category_filters.items():
         print(f"  {table}: {len(categories)} categories")
-
-    print(f"\nExtracting features for {len(cohort_ids)} hospitalizations")
-
+    
     return category_filters, cohort_ids
 
 
-@app.cell  
-def _(json, os, pd):
-    # Load outlier configuration for data clipping
-    outlier_config_path = os.path.join("..", "..", "outlier_config.json")
-    
-    # If running from project root, adjust path
-    if not os.path.exists(outlier_config_path):
-        outlier_config_path = "outlier_config.json"
-    
-    with open(outlier_config_path, 'r') as f:
-        outlier_config = json.load(f)
-    
-    print("✅ Loaded outlier configuration for data clipping")
-    
-    def apply_outlier_clipping(df, outlier_config, is_hourly=False):
-        """
-        Apply outlier clipping to dataframe columns based on outlier_config
-        
-        Args:
-            df: DataFrame to clip
-            outlier_config: Dictionary with min/max values for each category
-            is_hourly: If True, handles aggregated columns with suffixes (_max, _min, _median)
-        
-        Returns:
-            DataFrame with clipped values
-        """
-        df_clipped = df.copy()
-        total_clipped = 0
-        
-        # Map config categories to actual column categories
-        category_mapping = {
-            'vital_category': ['heart_rate', 'map', 'respiratory_rate', 'spo2', 'temp_c', 'weight_kg', 'height_cm', 'sbp', 'dbp'],
-            'lab_category': list(outlier_config['lab_category'].keys()),
-            'med_category': list(outlier_config['med_category'].keys()),
-            'respiratory_support': ['fio2_set', 'peep_set', 'tidal_volume_set', 'resp_rate_set']
-        }
-        
-        for config_category, limits in outlier_config.items():
-            for column_name, (min_val, max_val) in limits.items():
-                if is_hourly:
-                    # For hourly data, check columns with aggregation suffixes
-                    matching_cols = [col for col in df_clipped.columns 
-                                   if col.startswith(column_name) and 
-                                   any(col.endswith(suffix) for suffix in ['_max', '_min', '_median', '_mean'])]
-                else:
-                    # For wide data, check exact column names
-                    matching_cols = [col for col in df_clipped.columns if col == column_name]
-                
-                for col in matching_cols:
-                    if col in df_clipped.columns:
-                        # Count values outside range before clipping
-                        below_min = (df_clipped[col] < min_val).sum()
-                        above_max = (df_clipped[col] > max_val).sum()
-                        
-                        if below_min > 0 or above_max > 0:
-                            # Apply clipping
-                            df_clipped[col] = df_clipped[col].clip(lower=min_val, upper=max_val)
-                            total_clipped += below_min + above_max
-                            print(f"  Clipped {col}: {below_min} below min, {above_max} above max")
-        
-        print(f"✅ Total values clipped: {total_clipped}")
-        return df_clipped
-    
-    return outlier_config, apply_outlier_clipping
-
-
 @app.cell
 def _(mo):
-    mo.md(r"""## Create Wide Dataset Using pyCLIF""")
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(
-        r"""
-    ### Performance Optimization with Cohort Time Filtering
-
-    The `create_wide_dataset` function now supports an optional `cohort_df` parameter that allows filtering data to specific time windows **before** creating the wide dataset. This significantly improves performance and reduces memory usage when you only need data from specific time periods.
-
-    **Benefits:**
-    - Reduces data volume before pivoting operations
-    - Significantly lower memory usage
-    - Faster processing time
-    - Particularly useful for ICU mortality models where we only need the first 24 hours
-
-    **Required columns in cohort_df:**
-    - `hospitalization_id`: Unique identifier for each hospitalization
-    - `start_time`: Start of the time window (datetime)
-    - `end_time`: End of the time window (datetime)
-    """
-    )
+    mo.md(r"""## Create Wide Dataset Using clifpy""")
     return
 
 
 @app.cell
 def _(category_filters, clif, cohort_df, cohort_ids):
-    # Create wide dataset for cohort hospitalizations
-    print("Creating wide dataset using pyCLIF...")
-
+    # Create wide dataset for cohort hospitalizations using clifpy
+    print("Creating wide dataset using clifpy ClifOrchestrator...")
+    
     # Prepare cohort_df with required columns for time filtering
     # This will significantly reduce memory usage by filtering data to only the 24-hour windows
     cohort_time_filter = cohort_df[['hospitalization_id', 'hour_24_start_dttm', 'hour_24_end_dttm']].copy()
     cohort_time_filter.columns = ['hospitalization_id', 'start_time', 'end_time']  # Rename to match expected columns
-
+    
     print(f"Using cohort_df time filtering for {len(cohort_time_filter)} hospitalizations")
     print(f"This will filter data to 24-hour windows before creating the wide dataset")
-
+    
+    # Create wide dataset using ClifOrchestrator
     wide_df = clif.create_wide_dataset(
+        tables_to_load=['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous'],
+        category_filters=category_filters,
         hospitalization_ids=cohort_ids,
         cohort_df=cohort_time_filter,  # Pass cohort_df for time window filtering
-        category_filters=category_filters,  
         save_to_data_location=False,
         batch_size=10000,
         memory_limit='6GB',
         threads=4,
         show_progress=True
     )
-
+    
     print(f"✅ Wide dataset created successfully")
     print(f"Shape: {wide_df.shape}")
     print(f"Hospitalizations: {wide_df['hospitalization_id'].nunique()}")
     print(f"Date range: {wide_df['event_time'].min()} to {wide_df['event_time'].max()}")
-
+    
     return (wide_df,)
 
 
 @app.cell
-def _(wide_df):
-    print("Wide dataset columns:")
-    print(wide_df.columns.tolist())
+def _(mo):
+    mo.md(r"""## Add Temporal Split Column""")
     return
 
 
 @app.cell
-def _(wide_df):
-    # Display summary of medication columns
-    med_cols = ['angiotensin', 'dexmedetomidine', 'dobutamine', 'dopamine', 'epinephrine', 
-                'fentanyl', 'hydromorphone', 'ketamine', 'lorazepam', 'midazolam', 'milrinone', 
-                'morphine', 'norepinephrine', 'pentobarbital', 'phenylephrine', 'propofol', 'vasopressin']
+def _(clif, pd, wide_df):
+    # Add temporal split column based on admission_dttm from hospitalization table
+    print("Adding temporal split column (row_type)...")
+    
+    # Get hospitalization data with admission_dttm
+    hosp_df = clif.hospitalization.df[['hospitalization_id', 'admission_dttm']].copy()
+    hosp_df['hospitalization_id'] = hosp_df['hospitalization_id'].astype(str)
+    hosp_df['admission_dttm'] = pd.to_datetime(hosp_df['admission_dttm'])
+    
+    # Merge with wide dataset to get admission year
+    wide_df_with_admission = pd.merge(
+        wide_df,
+        hosp_df[['hospitalization_id', 'admission_dttm']],
+        on='hospitalization_id',
+        how='left'
+    )
+    
+    # Create temporal split based on admission year
+    # Training: 2018-2022, Testing: 2023-2024
+    wide_df_with_admission['admission_year'] = wide_df_with_admission['admission_dttm'].dt.year
+    wide_df_with_admission['row_type'] = wide_df_with_admission['admission_year'].apply(
+        lambda year: 'train' if 2018 <= year <= 2022 else 'test'
+    )
+    
+    # Display temporal split summary
+    print("\nTemporal split summary:")
+    split_summary = wide_df_with_admission['row_type'].value_counts()
+    print(split_summary)
+    
+    year_summary = wide_df_with_admission.groupby(['admission_year', 'row_type']).size().unstack(fill_value=0)
+    print("\nYear breakdown:")
+    print(year_summary)
+    
+    # Remove intermediate columns but keep row_type
+    wide_df_final = wide_df_with_admission.drop(columns=['admission_dttm', 'admission_year'])
+    
+    print(f"\n✅ Temporal split column added")
+    print(f"Final dataset shape: {wide_df_final.shape}")
+    
+    return (wide_df_final,)
 
-    available_med_cols = [_col for _col in med_cols if _col in wide_df.columns]
-    if available_med_cols:
-        print("Medication columns summary:")
-        print(wide_df[available_med_cols].describe())
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Save Final Event-Wide Dataset""")
     return
 
 
 @app.cell
-def _(wide_df):
-    # Safely inspect a subset of the data to avoid memory issues
-    print("Inspecting data sample...")
-
-    # Check dataset size first
-    print(f"Wide dataset shape: {wide_df.shape}")
-    print(f"Memory usage: {wide_df.memory_usage(deep=True).sum() / 1024**2:.1f} MB")
-
-    # Sample a specific hospitalization safely
-    sample_hosp_id = wide_df['hospitalization_id'].iloc[0]
-    print(f"Examining data for hospitalization: {sample_hosp_id}")
-
-    try:
-        # Use query method which is more memory efficient for large datasets
-        temp = wide_df.query(f"hospitalization_id == '{sample_hosp_id}'")
-        print(f"Records for {sample_hosp_id}: {len(temp)}")
-
-        if len(temp) > 0:
-            print("Time range:", temp['event_time'].min(), "to", temp['event_time'].max())
-            print("Columns with data:", (temp.notna().sum() > 0).sum())
-
-    except Exception as e:
-        print(f"Error inspecting data: {str(e)}")
-        print("Dataset might be too large for this operation")
-
+def _(get_output_path, os, wide_df_final):
+    # Save final event-wide dataset
+    print("Saving final event-wide dataset...")
+    
+    # Save to protected_outputs/preprocessing/
+    output_path = get_output_path('preprocessing', 'by_event_wide_df.parquet')
+    wide_df_final.to_parquet(output_path, index=False)
+    
+    print(f"✅ Event-wide dataset saved to: {output_path}")
+    print(f"File size: {os.path.getsize(output_path) / 1024**2:.1f} MB")
+    print(f"Shape: {wide_df_final.shape}")
+    
+    # Display final summary
+    print("\n=== Final Dataset Summary ===")
+    print(f"Total records: {len(wide_df_final):,}")
+    print(f"Hospitalizations: {wide_df_final['hospitalization_id'].nunique():,}")
+    print(f"Columns: {wide_df_final.shape[1]}")
+    
+    # Show temporal split
+    if 'row_type' in wide_df_final.columns:
+        print(f"\nTemporal split:")
+        print(wide_df_final['row_type'].value_counts())
+    
+    # Show sample columns
+    print(f"\nSample columns:")
+    print(wide_df_final.columns[:20].tolist())
+    if len(wide_df_final.columns) > 20:
+        print(f"... and {len(wide_df_final.columns) - 20} more columns")
+    
+    print("\n🎉 Feature engineering completed successfully!")
     return
 
 
