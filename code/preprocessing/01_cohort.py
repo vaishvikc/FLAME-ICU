@@ -97,7 +97,7 @@ def _(Adt, Hospitalization, Patient, config):
     adt_table = Adt.from_file(
         data_directory=config['clif2_path'],
         filetype=config['filetype'],
-        timezone="US/Eastern"
+        timezone=config['timezone']
     )
     adt_df = adt_table.df.copy()
     print(f"ADT data loaded: {len(adt_df)} records")
@@ -106,7 +106,7 @@ def _(Adt, Hospitalization, Patient, config):
     hosp_table = Hospitalization.from_file(
         data_directory=config['clif2_path'],
         filetype=config['filetype'],
-        timezone="US/Eastern"
+        timezone=config['timezone']
     )
     hosp_df = hosp_table.df.copy()
     print(f"Hospitalization data loaded: {len(hosp_df)} records")
@@ -115,7 +115,7 @@ def _(Adt, Hospitalization, Patient, config):
     patient_table = Patient.from_file(
         data_directory=config['clif2_path'],
         filetype=config['filetype'],
-        timezone="US/Eastern"
+        timezone=config['timezone']
     )
     patient_df = patient_table.df.copy()
     print(f"Patient data loaded: {len(patient_df)} records")
@@ -337,7 +337,7 @@ def _(icu_data_demo):
     ]]
 
     print(f"✅ Final cohort created: {len(cohort_final)} hospitalizations")
-    print(f"Mortality rate: {cohort_final['disposition'].mean():.3f}")
+    print(f"Mortality prevalence: {cohort_final['disposition'].mean()*100:.1f}%")
     return (cohort_final,)
 
 
@@ -358,8 +358,8 @@ def _(cohort_final):
     # Display cohort summary
     print("=== ICU Cohort Summary ===")
     print(f"Total hospitalizations: {len(cohort_final):,}")
-    print(f"Mortality rate: {cohort_final['disposition'].mean():.3f} ({cohort_final['disposition'].sum():,} deaths)")
-    print(f"Survival rate: {1 - cohort_final['disposition'].mean():.3f} ({(cohort_final['disposition'] == 0).sum():,} survivors)")
+    print(f"Mortality prevalence: {cohort_final['disposition'].mean()*100:.1f}% ({cohort_final['disposition'].sum():,} deaths)")
+    print(f"Survival prevalence: {(1 - cohort_final['disposition'].mean())*100:.1f}% ({(cohort_final['disposition'] == 0).sum():,} survivors)")
 
     # Time range analysis
     print(f"\n=== Time Range Analysis ===")
@@ -396,7 +396,8 @@ def _(cohort_final, ensure_dir, get_output_path, json, os):
     # Save additional metadata
     metadata = {
         'cohort_size': len(cohort_final),
-        'mortality_rate': float(cohort_final['disposition'].mean()),
+        'mortality_prevalence': float(cohort_final['disposition'].mean()),
+        'mortality_prevalence_percent': float(cohort_final['disposition'].mean() * 100),
         'date_range': {
             'start': cohort_final['start_dttm'].min().isoformat(),
             'end': cohort_final['start_dttm'].max().isoformat()

@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.14.15"
+__generated_with = "0.15.2"
 app = marimo.App(width="full")
 
 
@@ -14,23 +14,27 @@ def _():
 def _(mo):
     mo.md(
         r"""
-    # ICU Mortality Model - Feature Engineering
+    # ICU Mortality Model - Feature Extraction
 
-    This notebook loads the ICU cohort and creates hourly wide dataset for the first 24 hours of ICU stay.
+    This notebook loads the ICU cohort and creates an event-wide dataset for the first 24 hours of ICU stay.
 
     ## Objective
-    - Load ICU cohort from 01_cohort.ipynb
-    - Use pyCLIF to extract features from CLIF tables
-    - Create hourly wide dataset for the first 24 hours
-    - Filter to encounters with complete 24-hour data
+    - Load ICU cohort from 01_cohort.py
+    - Use clifpy to extract features from CLIF tables
+    - Apply outlier handling using built-in clifpy functions
+    - Create event-wide dataset for the first 24 hours
+    - Add temporal split column (row_type) based on admission year
     - Save features for modeling
 
     ## Feature Sources
-    - **Vitals**: All vital_category values
-    - **Labs**: All lab_category values
-    - **Patient Assessments**: GCS_total, RASS
-    - **Respiratory Support**: Mode, FiO2, PEEP, ventilator settings (with one-hot encoding)
-    - **Medications**: All vasoactives and sedatives
+    - **Vitals**: Heart rate, MAP, respiratory rate, SpO2, temperature, weight, height
+    - **Labs**: Comprehensive lab panel (albumin, creatinine, hemoglobin, etc.)
+    - **Respiratory Support**: Mode, device category, FiO2
+    - **Medications**: Vasoactives and sedatives
+
+    ## Temporal Split
+    - **Training data**: 2018-2022 admissions
+    - **Testing data**: 2023-2024 admissions
     """
     )
     return
@@ -43,12 +47,10 @@ def _(mo):
     ## Setup and Configuration
 
     **Memory Management Notes:**
-    - This notebook processes a large dataset (54K+ hospitalizations) 
-    - If you encounter kernel crashes or memory errors:
-      1. Set `USE_SAMPLE_DATA=True` in the configuration cell below
-      2. Increase `memory_limit` parameter in the hourly aggregation function
-      3. Reduce `batch_size` parameters if needed
-    - The hourly aggregation function uses DuckDB for optimal performance and automatically handles batching for large datasets
+    - This notebook processes data only for the cohort hospitalizations within their 24-hour windows
+    - clifpy automatically handles large datasets with DuckDB optimization
+    - Outlier handling is applied using built-in CLIF standard ranges
+    - Time filtering reduces memory usage by processing only relevant data
     """
     )
     return
@@ -63,19 +65,27 @@ def _():
 
     import pandas as pd
     import numpy as np
-    from clifpy import ClifOrchestrator
+    from clifpy.clif_orchestrator import ClifOrchestrator
     from clifpy.utils.outlier_handler import apply_outlier_handling
     import json
     import warnings
     warnings.filterwarnings('ignore')
 
-    print("=== ICU Mortality Model - Feature Engineering ===")
+    print("=== ICU Mortality Model - Feature Extraction ===")
     print("Setting up environment...")
-    return ClifOrchestrator, apply_outlier_handling, ensure_dir, get_output_path, json, load_config, os, pd
+    return (
+        ClifOrchestrator,
+        apply_outlier_handling,
+        ensure_dir,
+        get_output_path,
+        load_config,
+        os,
+        pd,
+    )
 
 
 @app.cell
-def _(load_config, get_output_path, ensure_dir):
+def _(ensure_dir, get_output_path, load_config):
     # Load configuration using config_helper
     config = load_config()
     print(f"Site: {config['site']}")
@@ -86,7 +96,6 @@ def _(load_config, get_output_path, ensure_dir):
     output_dir = get_output_path('preprocessing', '')
     ensure_dir(output_dir)
     print(f"Output directory: {output_dir}")
-
     return config, output_dir
 
 
@@ -94,26 +103,29 @@ def _(load_config, get_output_path, ensure_dir):
 def _(os, output_dir, pd):
     # Load ICU cohort from 01_cohort.py
     cohort_path = os.path.join(output_dir, 'icu_cohort.parquet')
-    
+
     if os.path.exists(cohort_path):
         cohort_df = pd.read_parquet(cohort_path)
         print(f"✅ Cohort loaded successfully: {len(cohort_df)} hospitalizations")
         print(f"Mortality rate: {cohort_df['disposition'].mean():.3f}")
-        
+
         # Convert datetime columns
         datetime_cols = ['start_dttm', 'hour_24_start_dttm', 'hour_24_end_dttm']
         for _col in datetime_cols:
             cohort_df[_col] = pd.to_datetime(cohort_df[_col])
-        
+
         print(f"Time range: {cohort_df['start_dttm'].min()} to {cohort_df['start_dttm'].max()}")
-        
+
+        # Extract hospitalization IDs for filtering data loads
+        cohort_ids = cohort_df['hospitalization_id'].astype(str).unique().tolist()
+        print(f"Extracted {len(cohort_ids)} hospitalization IDs for data filtering")
+
         # Display sample
         print("\nSample cohort records:")
         print(cohort_df.head())
     else:
         raise FileNotFoundError(f"Cohort file not found at {cohort_path}. Please run 01_cohort.py first.")
-    
-    return (cohort_df,)
+    return cohort_df, cohort_ids
 
 
 @app.cell
@@ -123,27 +135,33 @@ def _(mo):
 
 
 @app.cell
-def _(ClifOrchestrator, config):
+def _(ClifOrchestrator, cohort_ids, config):
     # Initialize ClifOrchestrator
     clif = ClifOrchestrator(
         data_directory=config['clif2_path'],
         filetype=config['filetype'],
-        timezone="US/Eastern"
+        timezone=config['timezone']
     )
-    
-    # Load required tables for feature engineering
-    print("Loading required tables...")
-    
+
+    # Load required tables for feature engineering with cohort ID filtering
+    print(f"Loading required tables with filtering for {len(cohort_ids)} cohort hospitalizations...")
+
     tables_to_load = ['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous']
-    for table_name in tables_to_load:
-        print(f"Loading {table_name} table...")
-        clif.load_table(table_name)
-    
+    for _table_name in tables_to_load:
+        print(f"Loading {_table_name} table with cohort ID filters...")
+        clif.load_table(
+            _table_name, 
+            filters={'hospitalization_id': cohort_ids}
+        )
+
     # Load hospitalization table to get admission_dttm for temporal split
-    print("Loading hospitalization table for temporal split...")
-    clif.load_table('hospitalization')
-    
-    print("✅ ClifOrchestrator initialized and tables loaded successfully")
+    print("Loading hospitalization table with cohort ID filters for temporal split...")
+    clif.load_table(
+        'hospitalization',
+        filters={'hospitalization_id': cohort_ids}
+    )
+
+    print("✅ ClifOrchestrator initialized and tables loaded successfully with cohort filtering")
     return (clif,)
 
 
@@ -157,36 +175,34 @@ def _(mo):
 def _(apply_outlier_handling, clif):
     # Apply outlier handling to all loaded tables using clifpy
     print("Applying outlier handling to loaded tables...")
-    
+
     tables_for_outlier_handling = ['vitals', 'labs', 'respiratory_support']
-    
-    for table_name in tables_for_outlier_handling:
-        table_obj = getattr(clif, table_name)
+
+    for _table_name in tables_for_outlier_handling:
+        table_obj = getattr(clif, _table_name)
         if table_obj is not None:
-            print(f"\nProcessing {table_name} table:")
+            print(f"\nProcessing {_table_name} table:")
             apply_outlier_handling(table_obj)
         else:
-            print(f"Warning: {table_name} table not loaded")
-    
+            print(f"Warning: {_table_name} table not loaded")
+
     print("\n✅ Outlier handling completed for all tables")
     return
 
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Feature Extraction Configuration""")
+    mo.md(r"""## Feature Selection Configuration""")
     return
 
 
 @app.cell
-def _(cohort_df):
-    # Define feature extraction configuration
-    print("Configuring feature extraction...")
-    
-    # Get hospitalization IDs from cohort
-    cohort_ids = cohort_df['hospitalization_id'].astype(str).unique().tolist()
+def _(cohort_ids):
+    # Define feature selection configuration
+    print("Configuring feature selection...")
+
     print(f"Processing {len(cohort_ids)} hospitalizations from cohort")
-    
+
     # Define category filters for each table
     category_filters = {
         'vitals': [  # Common vital signs
@@ -216,12 +232,11 @@ def _(cohort_df):
             'mode_category', 'device_category', 'fio2_set'
         ]
     }
-    
-    print("\nFeature extraction configuration:")
+
+    print("\nFeature selection configuration:")
     for table, categories in category_filters.items():
         print(f"  {table}: {len(categories)} categories")
-    
-    return category_filters, cohort_ids
+    return (category_filters,)
 
 
 @app.cell
@@ -231,23 +246,22 @@ def _(mo):
 
 
 @app.cell
-def _(category_filters, clif, cohort_df, cohort_ids):
+def _(category_filters, clif, cohort_df):
     # Create wide dataset for cohort hospitalizations using clifpy
     print("Creating wide dataset using clifpy ClifOrchestrator...")
-    
+
     # Prepare cohort_df with required columns for time filtering
     # This will significantly reduce memory usage by filtering data to only the 24-hour windows
     cohort_time_filter = cohort_df[['hospitalization_id', 'hour_24_start_dttm', 'hour_24_end_dttm']].copy()
     cohort_time_filter.columns = ['hospitalization_id', 'start_time', 'end_time']  # Rename to match expected columns
-    
+
     print(f"Using cohort_df time filtering for {len(cohort_time_filter)} hospitalizations")
     print(f"This will filter data to 24-hour windows before creating the wide dataset")
-    
+
     # Create wide dataset using ClifOrchestrator
     wide_df = clif.create_wide_dataset(
         tables_to_load=['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous'],
         category_filters=category_filters,
-        hospitalization_ids=cohort_ids,
         cohort_df=cohort_time_filter,  # Pass cohort_df for time window filtering
         save_to_data_location=False,
         batch_size=10000,
@@ -255,12 +269,11 @@ def _(category_filters, clif, cohort_df, cohort_ids):
         threads=4,
         show_progress=True
     )
-    
+
     print(f"✅ Wide dataset created successfully")
     print(f"Shape: {wide_df.shape}")
     print(f"Hospitalizations: {wide_df['hospitalization_id'].nunique()}")
     print(f"Date range: {wide_df['event_time'].min()} to {wide_df['event_time'].max()}")
-    
     return (wide_df,)
 
 
@@ -274,12 +287,12 @@ def _(mo):
 def _(clif, pd, wide_df):
     # Add temporal split column based on admission_dttm from hospitalization table
     print("Adding temporal split column (row_type)...")
-    
+
     # Get hospitalization data with admission_dttm
     hosp_df = clif.hospitalization.df[['hospitalization_id', 'admission_dttm']].copy()
     hosp_df['hospitalization_id'] = hosp_df['hospitalization_id'].astype(str)
     hosp_df['admission_dttm'] = pd.to_datetime(hosp_df['admission_dttm'])
-    
+
     # Merge with wide dataset to get admission year
     wide_df_with_admission = pd.merge(
         wide_df,
@@ -287,29 +300,28 @@ def _(clif, pd, wide_df):
         on='hospitalization_id',
         how='left'
     )
-    
+
     # Create temporal split based on admission year
     # Training: 2018-2022, Testing: 2023-2024
     wide_df_with_admission['admission_year'] = wide_df_with_admission['admission_dttm'].dt.year
     wide_df_with_admission['row_type'] = wide_df_with_admission['admission_year'].apply(
         lambda year: 'train' if 2018 <= year <= 2022 else 'test'
     )
-    
+
     # Display temporal split summary
     print("\nTemporal split summary:")
     split_summary = wide_df_with_admission['row_type'].value_counts()
     print(split_summary)
-    
+
     year_summary = wide_df_with_admission.groupby(['admission_year', 'row_type']).size().unstack(fill_value=0)
     print("\nYear breakdown:")
     print(year_summary)
-    
+
     # Remove intermediate columns but keep row_type
     wide_df_final = wide_df_with_admission.drop(columns=['admission_dttm', 'admission_year'])
-    
+
     print(f"\n✅ Temporal split column added")
     print(f"Final dataset shape: {wide_df_final.shape}")
-    
     return (wide_df_final,)
 
 
@@ -320,193 +332,77 @@ def _(mo):
 
 
 @app.cell
-def _(get_output_path, os, wide_df_final):
+def _(get_output_path, os, pd, wide_df_final):
     # Save final event-wide dataset
     print("Saving final event-wide dataset...")
-    
+
     # Save to protected_outputs/preprocessing/
     output_path = get_output_path('preprocessing', 'by_event_wide_df.parquet')
     wide_df_final.to_parquet(output_path, index=False)
-    
+
     print(f"✅ Event-wide dataset saved to: {output_path}")
     print(f"File size: {os.path.getsize(output_path) / 1024**2:.1f} MB")
     print(f"Shape: {wide_df_final.shape}")
-    
+
     # Display final summary
     print("\n=== Final Dataset Summary ===")
     print(f"Total records: {len(wide_df_final):,}")
-    print(f"Hospitalizations: {wide_df_final['hospitalization_id'].nunique():,}")
+    print(f"Unique hospitalizations: {wide_df_final['hospitalization_id'].nunique():,}")
     print(f"Columns: {wide_df_final.shape[1]}")
-    
-    # Show temporal split
+
+    # Show detailed temporal split with unique hospitalizations
     if 'row_type' in wide_df_final.columns:
-        print(f"\nTemporal split:")
-        print(wide_df_final['row_type'].value_counts())
-    
+        print(f"\n=== Temporal Split Details ===")
+        temporal_summary = wide_df_final.groupby('row_type').agg({
+            'hospitalization_id': 'nunique',
+            'event_time': 'count'
+        }).rename(columns={
+            'hospitalization_id': 'unique_hospitalizations', 
+            'event_time': 'total_records'
+        })
+
+        print("Records by temporal split:")
+        for row_type, data in temporal_summary.iterrows():
+            print(f"  {row_type}: {data['total_records']:,} records from {data['unique_hospitalizations']:,} unique hospitalizations")
+
+        # Calculate and display prevalence percentages by merging with cohort outcome data
+        print(f"\n=== Mortality Prevalence by Temporal Split ===")
+
+        # Get unique hospitalization-outcome pairs from cohort
+        hosp_outcomes = wide_df_final[['hospitalization_id', 'row_type']].drop_duplicates()
+
+        # Load cohort data to get disposition
+        cohort_path_for_prevalence = get_output_path('preprocessing', 'icu_cohort.parquet')
+        cohort_for_prevalence = pd.read_parquet(cohort_path_for_prevalence)
+
+        hosp_outcomes_with_disposition = pd.merge(
+            hosp_outcomes,
+            cohort_for_prevalence[['hospitalization_id', 'disposition']],
+            on='hospitalization_id',
+            how='left'
+        )
+
+        # Calculate prevalence by temporal split
+        prevalence_by_split = hosp_outcomes_with_disposition.groupby('row_type').agg({
+            'disposition': ['count', 'sum', 'mean']
+        }).round(3)
+        prevalence_by_split.columns = ['total_patients', 'deaths', 'mortality_prevalence']
+
+        for row_type, data in prevalence_by_split.iterrows():
+            prevalence_pct = data['mortality_prevalence'] * 100
+            print(f"  {row_type}: {prevalence_pct:.1f}% mortality prevalence ({int(data['deaths'])}/{int(data['total_patients'])} patients)")
+
     # Show sample columns
-    print(f"\nSample columns:")
+    print(f"\n=== Dataset Structure ===")
+    print(f"Sample columns (first 20):")
     print(wide_df_final.columns[:20].tolist())
     if len(wide_df_final.columns) > 20:
         print(f"... and {len(wide_df_final.columns) - 20} more columns")
-    
-    print("\n🎉 Feature engineering completed successfully!")
-    return
 
+    # Show time range
+    print(f"\nTime range: {wide_df_final['event_time'].min()} to {wide_df_final['event_time'].max()}")
 
-@app.cell
-def _(category_filters, convert_wide_to_hourly, wide_df):
-    # Define aggregation configuration - FIXED to match available columns
-    print("Defining aggregation configuration...")
-
-    # Build aggregation config based on what we actually have
-    aggregation_config = {
-        # Apply multiple aggregations to vital signs and labs that are actually present
-        "max": [_col for _col in category_filters['vitals'] + category_filters['labs'] if _col in wide_df.columns],
-        "min": [_col for _col in category_filters['vitals'] + category_filters['labs'] if _col in wide_df.columns],
-        # "mean": [_col for _col in category_filters['vitals'] + category_filters['labs'] if _col in wide_df.columns],
-        "median": [_col for _col in category_filters['vitals'] + category_filters['labs'] if _col in wide_df.columns],
-        # Boolean aggregation for medications (1 if present in hour, 0 otherwise)
-        "boolean": [_col for _col in category_filters['medication_admin_continuous'] if _col in wide_df.columns],
-        # One-hot encode categorical respiratory support columns
-        "one_hot_encode": [_col for _col in ["mode_category", "device_category"] if _col in wide_df.columns]
-    }
-
-    # Print what will actually be aggregated
-    print("Aggregation configuration:")
-    for method, cols in aggregation_config.items():
-        print(f"  {method}: {len(cols)} columns")
-        if len(cols) <= 10:
-            print(f"    {cols}")
-        else:
-            print(f"    {cols[:5]}...{cols[-2:]} (showing first 5 and last 2)")
-
-    # Convert to hourly using optimized DuckDB function
-    print(f"\nProcessing {len(wide_df):,} records to hourly aggregation...")
-
-    hourly_df = convert_wide_to_hourly(
-        wide_df, 
-        aggregation_config, 
-        memory_limit='6GB',      # Set memory limit for DuckDB
-        batch_size=10000          # Process in batches for large datasets
-    )
-
-    print("✅ Hourly aggregation completed!")
-
-    return (hourly_df,)
-
-
-@app.cell
-def _(hourly_df, wide_df):
-    # Performance and Results Summary
-    print("=== Hourly Aggregation Results ===")
-    print(f"✅ Processing complete!")
-    print(f"Input wide dataset: {wide_df.shape[0]:,} records")
-    print(f"Output hourly dataset: {hourly_df.shape[0]:,} records") 
-    print(f"Columns in hourly dataset: {hourly_df.shape[1]}")
-    print(f"Compression ratio: {wide_df.shape[0] / hourly_df.shape[0]:.1f}x fewer records")
-
-    # Show hourly distribution
-    hourly_stats = hourly_df.groupby('nth_hour').size()
-    print(f"\nHourly record distribution:")
-    print(f"  Hours covered: 0 to {hourly_stats.index.max()}")
-    print(f"  Average records per hour: {hourly_stats.mean():.0f}")
-    print(f"  Records in first 24 hours: {hourly_stats[hourly_stats.index < 24].sum():,}")
-
-    # Show sample of output columns
-    print(f"\nSample of aggregated columns:")
-    agg_columns = [_col for _col in hourly_df.columns if any(_col.endswith(suffix) for suffix in ['_max', '_min', '_mean', '_boolean'])]
-    for _col in agg_columns[:10]:
-        non_null_count = hourly_df[_col].notna().sum()
-        print(f"  {_col}: {non_null_count:,} non-null values")
-
-    return
-
-
-@app.cell
-def _(apply_outlier_clipping, cohort_df, os, outlier_config, output_dir, pd, wide_df):
-    # Note: This filtering step is now redundant if cohort_df was used in create_wide_dataset
-    # The data is already filtered to the 24-hour windows during the wide dataset creation
-    # However, we'll keep this for backward compatibility and verification
-
-    # Filter wide dataset to 24-hour windows
-    print("Filtering to 24-hour windows for event wide data...: Shape:", wide_df.shape)
-    cohort_df['hospitalization_id'] = cohort_df['hospitalization_id'].astype(str)
-    # Merge with cohort to get time windows
-    wide_df_filtered = pd.merge(
-        wide_df,
-        cohort_df[['hospitalization_id', 'hour_24_start_dttm', 'hour_24_end_dttm', 'disposition']],
-        on='hospitalization_id',
-        how='inner'
-    )
-
-    print(f"After merge with cohort: {len(wide_df_filtered)} records")
-
-    print(f"✅ Filtered to 24-hour windows: {len(wide_df_filtered)} records")
-    print(f"Hospitalizations with data: {wide_df_filtered['hospitalization_id'].nunique()}")
-
-    # Show time window validation
-    print("\nTime window validation:")
-    print(f"All events within window: {((wide_df_filtered['event_time'] >= wide_df_filtered['hour_24_start_dttm']) & (wide_df_filtered['event_time'] <= wide_df_filtered['hour_24_end_dttm'])).all()}")
-    print(f"Average records per hospitalization: {len(wide_df_filtered) / wide_df_filtered['hospitalization_id'].nunique():.1f}")
-    print('Shape: after filtering:', wide_df_filtered.shape)
-    
-    # Apply outlier clipping before saving
-    print("\n📊 Applying outlier clipping to wide dataset...")
-    wide_df_clipped = apply_outlier_clipping(wide_df_filtered, outlier_config, is_hourly=False)
-    print(f"Shape after clipping: {wide_df_clipped.shape}")
-
-    wide_df_clipped.to_parquet(os.path.join(output_dir, 'by_event_wide_df.parquet'), index=False)
-
-    return (wide_df_clipped,)
-
-
-@app.cell
-def _(apply_outlier_clipping, cohort_df, hourly_df, os, outlier_config, output_dir, pd):
-    # Filter hourly dataset to 24-hour windows
-    print("\nFiltering hourly dataset to 24-hour windows...| Shape:",hourly_df.shape)
-    # Merge with cohort to get time windows
-    hourly_df_filtered = pd.merge(
-        hourly_df,
-        cohort_df[['hospitalization_id', 'hour_24_start_dttm', 'hour_24_end_dttm', 'disposition']],
-        on='hospitalization_id',
-        how='inner'
-    )
-
-    print(f"After merge with cohort: {len(hourly_df_filtered)} records")
-
-    print(f"✅ Filtered hourly dataset to 24-hour windows: {len(hourly_df_filtered)} records")
-    print(f"Hospitalizations with data in hourly dataset: {hourly_df_filtered['hospitalization_id'].nunique()}")
-
-    # Show time window validation for hourly dataset
-    print("\nTime window validation for hourly dataset:")
-    print(f"All events within window: {((hourly_df_filtered['event_time_hour'] >= hourly_df_filtered['hour_24_start_dttm']) & (hourly_df_filtered['event_time_hour'] <= hourly_df_filtered['hour_24_end_dttm'])).all()}")
-    print(f"Average records per hospitalization: {len(hourly_df_filtered) / hourly_df_filtered['hospitalization_id'].nunique():.1f}")
-
-    print('Shape:', hourly_df_filtered.shape)
-    
-    # Apply outlier clipping before saving
-    print("\n📊 Applying outlier clipping to hourly dataset...")
-    hourly_df_clipped = apply_outlier_clipping(hourly_df_filtered, outlier_config, is_hourly=True)
-    print(f"Shape after clipping: {hourly_df_clipped.shape}")
-    
-    hourly_df_clipped.to_parquet(os.path.join(output_dir, 'by_hourly_wide_df.parquet'), index=False)
-
-    print(f"\n✅ Feature engineering completed successfully!")
-    print(f"Event-level data saved to: {os.path.join(output_dir, 'by_event_wide_df.parquet')}")
-    print(f"Hourly data saved to: {os.path.join(output_dir, 'by_hourly_wide_df.parquet')}")
-
-    return (hourly_df_clipped,)
-
-
-@app.cell
-def _(hourly_df_clipped):
-    print("Hourly dataset columns:")
-    print(hourly_df_clipped.columns.tolist())
-    return
-
-
-@app.cell
-def _():
+    print("\n🎉 Feature extraction completed successfully!")
     return
 
 
