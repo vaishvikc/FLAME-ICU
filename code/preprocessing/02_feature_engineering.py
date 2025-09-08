@@ -288,11 +288,12 @@ def _(cohort_df, pd, wide_df):
     # Add demographics by inner joining with cohort_df
     print("Adding demographics from cohort to wide dataset...")
     
-    # Inner join with cohort_df to add demographic columns
+    # Inner join with cohort_df to add demographic and time window columns
     # This will also filter out any hospitalizations without demographics
     wide_df_with_demographics = pd.merge(
         wide_df,
-        cohort_df[['hospitalization_id', 'sex_category', 'ethnicity_category', 
+        cohort_df[['hospitalization_id', 'hour_24_start_dttm', 'hour_24_end_dttm',
+                   'sex_category', 'ethnicity_category', 
                    'race_category', 'language_category']],
         on='hospitalization_id',
         how='inner'  # Inner join filters out any missing demographics

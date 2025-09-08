@@ -15,6 +15,7 @@ numpy
 pandas
 papermill
 plotly
+polars
 pyarrow
 pytz
 requests
