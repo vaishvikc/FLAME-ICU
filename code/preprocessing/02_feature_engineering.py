@@ -279,12 +279,52 @@ def _(category_filters, clif, cohort_df):
 
 @app.cell
 def _(mo):
+    mo.md(r"""## Add Demographics from Cohort""")
+    return
+
+
+@app.cell
+def _(cohort_df, pd, wide_df):
+    # Add demographics by inner joining with cohort_df
+    print("Adding demographics from cohort to wide dataset...")
+    
+    # Inner join with cohort_df to add demographic columns
+    # This will also filter out any hospitalizations without demographics
+    wide_df_with_demographics = pd.merge(
+        wide_df,
+        cohort_df[['hospitalization_id', 'sex_category', 'ethnicity_category', 
+                   'race_category', 'language_category']],
+        on='hospitalization_id',
+        how='inner'  # Inner join filters out any missing demographics
+    )
+    
+    print(f"✅ Demographics added to wide dataset")
+    print(f"Shape before demographics: {wide_df.shape}")
+    print(f"Shape after demographics: {wide_df_with_demographics.shape}")
+    print(f"Hospitalizations with demographics: {wide_df_with_demographics['hospitalization_id'].nunique()}")
+    
+    # Show demographic distribution
+    print("\n=== Demographic Distribution ===")
+    print("Sex distribution:")
+    print(wide_df_with_demographics['sex_category'].value_counts())
+    print("\nRace distribution:")
+    print(wide_df_with_demographics['race_category'].value_counts())
+    print("\nEthnicity distribution:")
+    print(wide_df_with_demographics['ethnicity_category'].value_counts())
+    print("\nLanguage distribution:")
+    print(wide_df_with_demographics['language_category'].value_counts())
+    
+    return (wide_df_with_demographics,)
+
+
+@app.cell
+def _(mo):
     mo.md(r"""## Add Temporal Split Column""")
     return
 
 
 @app.cell
-def _(clif, pd, wide_df):
+def _(clif, pd, wide_df_with_demographics):
     # Add temporal split column based on admission_dttm from hospitalization table
     print("Adding temporal split column (row_type)...")
 
@@ -295,7 +335,7 @@ def _(clif, pd, wide_df):
 
     # Merge with wide dataset to get admission year
     wide_df_with_admission = pd.merge(
-        wide_df,
+        wide_df_with_demographics,
         hosp_df[['hospitalization_id', 'admission_dttm']],
         on='hospitalization_id',
         how='left'

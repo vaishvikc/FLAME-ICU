@@ -277,23 +277,17 @@ def _(icu_data_final, patient_df, pd):
     # Add patient demographics
     print("Adding patient demographics...")
 
-    # Rename columns for consistency with CLIF 2.0
-    patient_df_clean = patient_df.rename(columns={
-        'race_category': 'race',
-        'ethnicity_category': 'ethnicity',
-        'sex_category': 'sex'
-    })
-
-    # Merge with patient data
+    # Merge with patient data (keep original column names)
     icu_data_demo = pd.merge(
         icu_data_final,
-        patient_df_clean[['patient_id', 'sex', 'ethnicity', 'race']],
+        patient_df[['patient_id', 'sex_category', 'ethnicity_category', 'race_category', 'language_category']],
         on='patient_id',
         how='left'
     )
 
-    # Filter out records with missing sex (data quality)
-    icu_data_demo = icu_data_demo[~icu_data_demo['sex'].isna()].reset_index(drop=True)
+    # Filter out records with missing demographics (data quality)
+    demographic_cols = ['sex_category', 'ethnicity_category', 'race_category', 'language_category']
+    icu_data_demo = icu_data_demo[~icu_data_demo[demographic_cols].isna().any(axis=1)].reset_index(drop=True)
 
     print(f"Final cohort with demographics: {len(icu_data_demo)} records")
     return (icu_data_demo,)
@@ -313,12 +307,16 @@ def _(icu_data_demo):
     # Create disposition binary variable (1 = expired, 0 = survived)
     icu_data_demo['disposition'] = (icu_data_demo['dispo'].fillna('Other').str.contains('dead|expired|death|died', case=False, regex=True)).astype(int)
 
-    # Create final cohort with PRD required columns
+    # Create final cohort with PRD required columns and demographics
     cohort_final = icu_data_demo[[
         'hospitalization_id',
         'min_in_dttm',     # start_dttm
         'after_24hr',      # hour_24_end_dttm
-        'disposition'
+        'disposition',
+        'sex_category',
+        'ethnicity_category', 
+        'race_category',
+        'language_category'
     ]].rename(columns={
         'min_in_dttm': 'start_dttm',
         'after_24hr': 'hour_24_end_dttm'
@@ -327,13 +325,17 @@ def _(icu_data_demo):
     # Add hour_24_start_dttm (same as start_dttm for our cohort)
     cohort_final['hour_24_start_dttm'] = cohort_final['start_dttm']
 
-    # Reorder columns as per PRD
+    # Reorder columns as per PRD with demographics
     cohort_final = cohort_final[[
         'hospitalization_id',
         'start_dttm',
         'hour_24_start_dttm',
         'hour_24_end_dttm',
-        'disposition'
+        'disposition',
+        'sex_category',
+        'ethnicity_category',
+        'race_category', 
+        'language_category'
     ]]
 
     print(f"✅ Final cohort created: {len(cohort_final)} hospitalizations")
