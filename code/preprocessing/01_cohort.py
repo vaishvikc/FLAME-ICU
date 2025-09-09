@@ -163,24 +163,34 @@ def _(mo):
 
 
 @app.cell
-def _():
-    #icu_data.head()
+def _(icu_data):
+    icu_data.head()
     return
 
 
 @app.cell
-def _(icu_data, pd):
+def _(config, icu_data, pd):
     # Apply initial filters
     print("Applying initial cohort filters...")
 
-    # Filter for ICU admissions within 48 hours of hospital admission
-    icu_48hr_check = icu_data[
-        (icu_data['location_category'] == 'ICU') &
-        (icu_data['in_dttm'] >= icu_data['admission_dttm']) &
-        (icu_data['in_dttm'] <= icu_data['admission_dttm'] + pd.Timedelta(hours=48)) &
-        (icu_data['admission_dttm'].dt.year >= 2018) & (icu_data['admission_dttm'].dt.year <= 2024) &
-        (icu_data['age_at_admission'] >= 18) & (icu_data['age_at_admission'].notna())
-    ]['hospitalization_id'].unique()
+    if config['site'].lower() == 'mimic': 
+        # Filter for ICU admissions within 48 hours of hospital admission
+        icu_48hr_check = icu_data[
+            (icu_data['location_category'] == 'ICU') &
+            (icu_data['in_dttm'] >= icu_data['admission_dttm']) &
+            (icu_data['in_dttm'] <= icu_data['admission_dttm'] + pd.Timedelta(hours=48)) &
+            #(icu_data['admission_dttm'].dt.year >= 2018) & (icu_data['admission_dttm'].dt.year <= 2024) &
+            (icu_data['age_at_admission'] >= 18) & (icu_data['age_at_admission'].notna())
+        ]['hospitalization_id'].unique()
+    else:
+        # Filter for ICU admissions within 48 hours of hospital admission
+        icu_48hr_check = icu_data[
+            (icu_data['location_category'] == 'ICU') &
+            (icu_data['in_dttm'] >= icu_data['admission_dttm']) &
+            (icu_data['in_dttm'] <= icu_data['admission_dttm'] + pd.Timedelta(hours=48)) &
+            (icu_data['admission_dttm'].dt.year >= 2018) & (icu_data['admission_dttm'].dt.year <= 2024) &
+            (icu_data['age_at_admission'] >= 18) & (icu_data['age_at_admission'].notna())
+        ]['hospitalization_id'].unique()
 
     print(f"Hospitalizations with ICU within 48hr: {len(icu_48hr_check)}")
 
@@ -286,11 +296,23 @@ def _(icu_data_final, patient_df, pd):
     )
 
     # Filter out records with missing demographics (data quality)
-    demographic_cols = ['sex_category', 'ethnicity_category', 'race_category', 'language_category']
+    demographic_cols = ['sex_category', 'ethnicity_category', 'race_category']
     icu_data_demo = icu_data_demo[~icu_data_demo[demographic_cols].isna().any(axis=1)].reset_index(drop=True)
 
     print(f"Final cohort with demographics: {len(icu_data_demo)} records")
     return (icu_data_demo,)
+
+
+@app.cell
+def _(icu_data_final):
+    icu_data_final
+    return
+
+
+@app.cell
+def _(patient_df):
+    patient_df
+    return
 
 
 @app.cell
