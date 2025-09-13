@@ -61,7 +61,7 @@ def _():
     import sys
     import os
     sys.path.append('..')
-    from config_helper import get_project_root, ensure_dir, get_output_path, load_config
+    from config_helper import get_project_root, ensure_dir, get_output_path
 
     import pandas as pd
     import numpy as np
@@ -78,18 +78,19 @@ def _():
         apply_outlier_handling,
         ensure_dir,
         get_output_path,
-        load_config,
         os,
         pd,
     )
 
 
 @app.cell
-def _(ensure_dir, get_output_path, load_config):
-    # Load configuration using config_helper
-    config = load_config()
+def _(ensure_dir, get_output_path, json):
+    # Load configuration from clif_config.json
+    with open('clif_config.json', 'r') as f:
+        config = json.load(f)
+
     print(f"Site: {config['site']}")
-    print(f"Data path: {config['clif2_path']}")
+    print(f"Data path: {config['data_directory']}")
     print(f"File type: {config['filetype']}")
 
     # Set up output directory using standardized helper
@@ -135,13 +136,9 @@ def _(mo):
 
 
 @app.cell
-def _(ClifOrchestrator, cohort_ids, config):
-    # Initialize ClifOrchestrator
-    clif = ClifOrchestrator(
-        data_directory=config['clif2_path'],
-        filetype=config['filetype'],
-        timezone=config['timezone']
-    )
+def _(ClifOrchestrator, cohort_ids):
+    # Initialize ClifOrchestrator using config file
+    clif = ClifOrchestrator(config_path='clif_config.json')
 
     # Load required tables for feature engineering with cohort ID filtering
     print(f"Loading required tables with filtering for {len(cohort_ids)} cohort hospitalizations...")

@@ -57,8 +57,6 @@ def _():
 def _(os, sys):
 
 
-    sys.path.append(os.path.join('..', 'src'))
-    sys.path.append(os.path.join('..', 'utils'))
 
     import pandas as pd
     import numpy as np
@@ -89,34 +87,22 @@ def _(mo):
 
 
 @app.cell
-def _(Adt, Hospitalization, Patient, config):
-    # Load required tables using clifpy
+def _(Adt, Hospitalization, Patient):
+    # Load required tables using clifpy config file
     print("Loading required tables...")
 
-    # Load ADT data
-    adt_table = Adt.from_file(
-        data_directory=config['clif2_path'],
-        filetype=config['filetype'],
-        timezone=config['timezone']
-    )
+    # Load ADT data using config file from project root
+    adt_table = Adt.from_file(config_path='clif_config.json')
     adt_df = adt_table.df.copy()
     print(f"ADT data loaded: {len(adt_df)} records")
 
-    # Load hospitalization data
-    hosp_table = Hospitalization.from_file(
-        data_directory=config['clif2_path'],
-        filetype=config['filetype'],
-        timezone=config['timezone']
-    )
+    # Load hospitalization data using config file
+    hosp_table = Hospitalization.from_file(config_path='clif_config.json')
     hosp_df = hosp_table.df.copy()
     print(f"Hospitalization data loaded: {len(hosp_df)} records")
 
-    # Load patient data
-    patient_table = Patient.from_file(
-        data_directory=config['clif2_path'],
-        filetype=config['filetype'],
-        timezone=config['timezone']
-    )
+    # Load patient data using config file
+    patient_table = Patient.from_file(config_path='clif_config.json')
     patient_df = patient_table.df.copy()
     print(f"Patient data loaded: {len(patient_df)} records")
     return adt_df, hosp_df, patient_df
