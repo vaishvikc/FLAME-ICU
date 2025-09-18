@@ -346,19 +346,31 @@ def _(clif, pd, wide_df_with_demographics):
         lambda year: 'train' if 2018 <= year <= 2022 else 'test'
     )
 
+    # Create additional split with validation set
+    # Training: 2018-2021, Validation: 2022, Testing: 2023-2024
+    wide_df_with_admission['split_type'] = wide_df_with_admission['admission_year'].apply(
+        lambda year: 'train' if 2018 <= year <= 2021 else
+                     'val' if year == 2022 else
+                     'test'
+    )
+
     # Display temporal split summary
-    print("\nTemporal split summary:")
+    print("\nOriginal temporal split (row_type) summary:")
     split_summary = wide_df_with_admission['row_type'].value_counts()
     print(split_summary)
 
-    year_summary = wide_df_with_admission.groupby(['admission_year', 'row_type']).size().unstack(fill_value=0)
+    print("\nNew temporal split (split_type) summary:")
+    split_summary_new = wide_df_with_admission['split_type'].value_counts()
+    print(split_summary_new)
+
+    year_summary = wide_df_with_admission.groupby(['admission_year', 'row_type', 'split_type']).size().reset_index(name='count')
     print("\nYear breakdown:")
     print(year_summary)
 
-    # Remove intermediate columns but keep row_type
+    # Remove intermediate columns but keep both split columns
     wide_df_final = wide_df_with_admission.drop(columns=['admission_dttm', 'admission_year'])
 
-    print(f"\n✅ Temporal split column added")
+    print(f"\n✅ Temporal split columns added (row_type and split_type)")
     print(f"Final dataset shape: {wide_df_final.shape}")
     return (wide_df_final,)
 
