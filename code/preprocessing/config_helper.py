@@ -28,19 +28,19 @@ def get_output_path(stage, filename):
 
 
 def load_config():
-    """Load configuration from config_demo.json"""
+    """Load configuration from clif_config.json"""
     project_root = get_project_root()
     
     # Try code/configs directory first (where config actually is)
-    config_path = os.path.join(project_root, "code", "configs", "config_demo.json")
+    config_path = os.path.join(project_root, "code", "configs", "clif_config.json")
     
     if not os.path.exists(config_path):
         # Try project root/configs directory
-        config_path = os.path.join(project_root, "configs", "config_demo.json")
+        config_path = os.path.join(project_root, "configs", "clif_config.json")
     
     if not os.path.exists(config_path):
         # Fallback to project root
-        config_path = os.path.join(project_root, "config_demo.json")
+        config_path = os.path.join(project_root, "clif_config.json")
     
     if os.path.exists(config_path):
         with open(config_path, 'r') as file:

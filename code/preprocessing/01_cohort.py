@@ -50,11 +50,11 @@ def _():
     import sys
     sys.path.append('..')
     from config_helper import get_project_root, ensure_dir, get_output_path, load_config
-    return ensure_dir, get_output_path, load_config, os, sys
+    return ensure_dir, get_output_path, load_config, os
 
 
 @app.cell
-def _(os, sys):
+def _():
 
 
 
@@ -75,7 +75,7 @@ def _(load_config):
     # Load configuration
     config = load_config()
     print(f"Site: {config['site']}")
-    print(f"Data path: {config['clif2_path']}")
+    print(f"Data path: {config['data_directory']}")
     print(f"File type: {config['filetype']}")
     return (config,)
 

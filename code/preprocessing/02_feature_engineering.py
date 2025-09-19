@@ -143,12 +143,22 @@ def _(ClifOrchestrator, cohort_ids):
     # Load required tables for feature engineering with cohort ID filtering
     print(f"Loading required tables with filtering for {len(cohort_ids)} cohort hospitalizations...")
 
+    # Define columns needed for each table to optimize memory usage
+    columns_to_load = {
+        'vitals': ['hospitalization_id', 'recorded_dttm', 'vital_category', 'vital_value'],
+        'labs': ['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value', 'lab_value_numeric'],
+        'respiratory_support': None,  # Load all columns
+        'medication_admin_continuous': None  # Load all columns
+    }
+
     tables_to_load = ['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous']
     for _table_name in tables_to_load:
-        print(f"Loading {_table_name} table with cohort ID filters...")
+        table_columns = columns_to_load.get(_table_name)
+        print(f"Loading {_table_name} table with cohort ID filters and {len(table_columns) if table_columns else 'all'} columns...")
         clif.load_table(
-            _table_name, 
-            filters={'hospitalization_id': cohort_ids}
+            _table_name,
+            filters={'hospitalization_id': cohort_ids},
+            columns=table_columns
         )
 
     # Load hospitalization table to get admission_dttm for temporal split
