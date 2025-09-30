@@ -230,22 +230,6 @@ def run_inference(models, X_test, y_test, test_ids, config):
         print(f"  AUC: {auc:.4f}")
         print(f"  Accuracy: {acc:.4f}")
 
-    # Create ensemble prediction (simple average)
-    ensemble_proba = (results['xgboost']['y_pred_proba'] + results['nn']['y_pred_proba']) / 2
-    ensemble_pred = (ensemble_proba > threshold).astype(int)
-
-    results['ensemble'] = {
-        'y_pred_proba': ensemble_proba,
-        'y_pred': ensemble_pred,
-        'model_type': 'ensemble'
-    }
-
-    # Print ensemble metrics
-    ensemble_auc = roc_auc_score(y_test, ensemble_proba)
-    ensemble_acc = accuracy_score(y_test, ensemble_pred)
-    print(f"\nEnsemble (Average):")
-    print(f"  AUC: {ensemble_auc:.4f}")
-    print(f"  Accuracy: {ensemble_acc:.4f}")
 
     return results
 
@@ -384,7 +368,7 @@ def save_inference_results(detailed_results, y_test, results, config):
     }
 
     # Add model-specific data (NO PHI - only aggregate metrics and curves)
-    for model_type in ['xgboost', 'nn', 'ensemble']:
+    for model_type in ['xgboost', 'nn']:
         site_specific_results['models'][model_type] = {
             'metrics': detailed_results[model_type]['metrics'],
             'plot_data': {
@@ -418,8 +402,7 @@ def save_inference_results(detailed_results, y_test, results, config):
         'mortality_rate': float(y_test.mean()),
         'model_performance': {
             'xgboost_auc': detailed_results['xgboost']['metrics']['roc_auc'],
-            'nn_auc': detailed_results['nn']['metrics']['roc_auc'],
-            'ensemble_auc': detailed_results['ensemble']['metrics']['roc_auc']
+            'nn_auc': detailed_results['nn']['metrics']['roc_auc']
         },
         'files_created': {
             'metrics': metrics_filename,
@@ -487,10 +470,10 @@ def plot_roc_curves(detailed_results, site_name, plots_dir):
     """Generate and save ROC curves for all models"""
     plt.figure(figsize=(10, 8))
 
-    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e', 'ensemble': '#2ca02c'}
-    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network', 'ensemble': 'Ensemble'}
+    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e'}
+    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network'}
 
-    for model_type in ['xgboost', 'nn', 'ensemble']:
+    for model_type in ['xgboost', 'nn']:
         roc_data = detailed_results[model_type]['roc_curve']
         auc = detailed_results[model_type]['metrics']['roc_auc']
 
@@ -523,10 +506,10 @@ def plot_calibration_curves(y_test, results, detailed_results, site_name, plots_
 
     plt.figure(figsize=(10, 8))
 
-    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e', 'ensemble': '#2ca02c'}
-    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network', 'ensemble': 'Ensemble'}
+    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e'}
+    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network'}
 
-    for model_type in ['xgboost', 'nn', 'ensemble']:
+    for model_type in ['xgboost', 'nn']:
         y_pred_proba = results[model_type]['y_pred_proba']
 
         # Calculate calibration curve
@@ -561,11 +544,11 @@ def plot_decision_curves(detailed_results, site_name, plots_dir):
     """Generate decision analysis/net benefit curves"""
     plt.figure(figsize=(10, 8))
 
-    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e', 'ensemble': '#2ca02c'}
-    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network', 'ensemble': 'Ensemble'}
+    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e'}
+    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network'}
 
     # Plot model curves
-    for model_type in ['xgboost', 'nn', 'ensemble']:
+    for model_type in ['xgboost', 'nn']:
         decision_data = detailed_results[model_type]['decision_curve']
 
         plt.plot(decision_data['thresholds'], decision_data['net_benefit'],
@@ -650,7 +633,6 @@ def main():
         print("Test Set Performance Summary:")
         print(f"XGBoost AUC: {detailed_results['xgboost']['metrics']['roc_auc']:.4f}")
         print(f"Neural Network AUC: {detailed_results['nn']['metrics']['roc_auc']:.4f}")
-        print(f"Ensemble AUC: {detailed_results['ensemble']['metrics']['roc_auc']:.4f}")
         print()
         print("Results ready for Stage 2 cross-site analysis!")
         print(f"Output directory: {results_dir}")
