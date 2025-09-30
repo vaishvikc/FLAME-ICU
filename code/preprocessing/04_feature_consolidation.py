@@ -55,6 +55,7 @@ def _():
     import numpy as np
     import altair as alt
     import pandas as pd
+    import pickle
     import warnings
     warnings.filterwarnings('ignore')
 
@@ -66,7 +67,7 @@ def _():
 
     print("=== ICU Mortality Model - Feature Consolidation ===")
     print("Setting up environment...")
-    return get_output_path, json, os, pl
+    return get_output_path, json, os, pickle, pl
 
 
 @app.cell
@@ -417,39 +418,57 @@ def _(mo):
 def _(df, final_df, pl):
     print("=== Adding Split Information ===")
 
-    # Get split_type from original event-wide data (first occurrence per hospitalization)
-    split_info = df.group_by('hospitalization_id').agg([
-        pl.col('split_type').first().alias('split_type')
-    ])
+    # Check if split_type already exists
+    if 'split_type' not in final_df.columns:
+        # Get split_type from original event-wide data (first occurrence per hospitalization)
+        split_info = df.group_by('hospitalization_id').agg([
+            pl.col('split_type').first().alias('split_type')
+        ])
 
-    # Add split_type to consolidated data
-    final_df_with_split = final_df.join(
-        split_info,
-        on='hospitalization_id',
-        how='left'
-    )
+        # Add split_type to consolidated data
+        final_df_with_split = final_df.join(
+            split_info,
+            on='hospitalization_id',
+            how='left'
+        )
+        print(f"✅ Split information added")
+    else:
+        # split_type already exists, no need to add
+        final_df_with_split = final_df
+        print(f"✅ Split information already present in data")
 
-    print(f"✅ Split information added")
     print(f"Split distribution:")
     print(final_df_with_split['split_type'].value_counts().sort('split_type'))
-
     return (final_df_with_split,)
 
 
 @app.cell
-def _(final_df_with_split, pl):
+def _(df_pandas):
+    df_pandas.columns.to_list()
+    return
+
+
+@app.cell
+def _(final_df_with_split):
     print("=== Applying QuantileTransformer Scaling ===")
 
     # Import scaling libraries
     from sklearn.preprocessing import QuantileTransformer
-    import pandas as pd
-    import pickle
 
     # Convert to pandas for sklearn compatibility
     df_pandas = final_df_with_split.to_pandas()
 
-    # Identify feature columns (exclude identifiers and targets)
-    exclude_cols = ['hospitalization_id', 'disposition', 'split_type']
+    # Identify feature columns (exclude identifiers, targets, and categorical columns)
+    exclude_cols = [
+        'hospitalization_id',
+        'patient_id',
+        'disposition',
+        'split_type',
+        'row_type',
+        'ethnicity_category',
+        'race_category',
+        'language_category'
+    ]
     feature_cols = [col for col in df_pandas.columns if col not in exclude_cols]
 
     print(f"Features to scale: {len(feature_cols)} columns")
@@ -482,8 +501,7 @@ def _(final_df_with_split, pl):
 
     print("✅ Scaling completed")
     print(f"Scaled features shape: {X_scaled.shape}")
-
-    return (df_scaled, transformer, feature_cols)
+    return df_pandas, df_scaled, feature_cols, transformer
 
 
 @app.cell(hide_code=True)
@@ -493,11 +511,8 @@ def _(mo):
 
 
 @app.cell
-def _(df_scaled, feature_cols, get_output_path, transformer):
+def _(df_scaled, feature_cols, get_output_path, json, pickle, transformer):
     print("=== Saving Preprocessed Data ===")
-
-    import pickle
-    import os
 
     # Save scaled consolidated features
     output_path = get_output_path('preprocessing', 'consolidated_features.parquet')
@@ -532,7 +547,6 @@ def _(df_scaled, feature_cols, get_output_path, transformer):
     }
 
     metadata_path = get_output_path('preprocessing', 'preprocessing_metadata.json')
-    import json
     with open(metadata_path, 'w') as f:
         json.dump(preprocessing_info, f, indent=2)
     print(f"✅ Preprocessing metadata saved to: {metadata_path}")
@@ -544,7 +558,6 @@ def _(df_scaled, feature_cols, get_output_path, transformer):
     print(df_scaled['split_type'].value_counts())
     print(f"Disposition distribution:")
     print(df_scaled['disposition'].value_counts())
-
     return
 
 
