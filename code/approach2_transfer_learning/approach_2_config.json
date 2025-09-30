@@ -1,0 +1,98 @@
+{
+  "approach_name": "approach_2_transfer_learning",
+  "stage": 1,
+  "description": "Approach 2: Transfer Learning - Fine-tune RUSH pre-trained models with local training data",
+
+  "transfer_learning": {
+    "base_models_path": "models_storage/approach_1/stage_1/",
+    "learning_rate_multiplier": 0.1,
+    "description": "Load pre-trained models from Approach 1 and fine-tune with local data"
+  },
+
+  "data_config": {
+    "consolidated_features_path": "protected_outputs/preprocessing/consolidated_features.parquet",
+    "feature_selection": "all_except_identifiers",
+    "exclude_columns": [
+      "hospitalization_id",
+      "patient_id",
+      "ethnicity_category",
+      "race_category",
+      "language_category",
+      "row_type",
+      "split_type",
+      "disposition"
+    ],
+    "target_column": "disposition"
+  },
+
+  "preprocessing": {
+    "handle_missing": {
+      "xgboost": "none",
+      "nn": "fill_negative_one"
+    }
+  },
+
+  "xgboost_params": {
+    "eta": 0.026515633215149336,
+    "max_depth": 8,
+    "min_child_weight": 3,
+    "max_delta_step": 2,
+    "subsample": 0.5366705199674231,
+    "colsample_bytree": 0.6854010290052701,
+    "gamma": 0.3923060451149189,
+    "reg_alpha": 0.07735244751655446,
+    "reg_lambda": 0.01216908399903694,
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "seed": 42,
+    "num_rounds": 100,
+    "early_stopping_rounds": 20,
+    "use_class_weights": true
+  },
+
+  "nn_params": {
+    "hidden_sizes": [64, 32],
+    "dropout_rate": 0.4928001664243068,
+    "activation": "relu",
+    "batch_norm": true,
+    "learning_rate": 0.0011232186507608042,
+    "weight_decay": 0.000492487423067329,
+    "batch_size": 512,
+    "epochs": 100,
+    "early_stopping_patience": 10,
+    "gradient_clip": 1.0,
+    "use_class_weights": true,
+    "use_focal_loss": false,
+    "label_smoothing": 0.022104980413185205,
+    "seed": 42
+  },
+
+  "evaluation_config": {
+    "metrics": [
+      "roc_auc",
+      "accuracy",
+      "precision",
+      "recall",
+      "f1_score",
+      "pr_auc",
+      "brier_score",
+      "calibration_error"
+    ],
+    "threshold": 0.5,
+    "calibration_bins": 10
+  },
+
+  "output_paths": {
+    "models_dir": "models_storage/approach_2/stage_1/",
+    "results_dir": "protected_outputs/share_to_box/approach_2_stage_1/",
+    "plots_dir": "protected_outputs/share_to_box/approach_2_stage_1/plots/"
+  },
+
+  "random_seeds": {
+    "global": 42,
+    "data_split": 42,
+    "xgboost": 42,
+    "nn": 42,
+    "preprocessing": 42
+  }
+}
