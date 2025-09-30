@@ -22,8 +22,13 @@ import numpy as np
 import pandas as pd
 import torch
 import xgboost as xgb
+import matplotlib.pyplot as plt
+import matplotlib
 from datetime import datetime
 from pathlib import Path
+
+# Set matplotlib backend for non-interactive plotting
+matplotlib.use('Agg')
 
 # Add parent directories to path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +44,33 @@ from approach_1_utils import (
 )
 
 warnings.filterwarnings('ignore')
+
+
+def load_site_config():
+    """
+    Load site configuration from clif_config.json
+    """
+    # Get project root directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    approach_dir = os.path.dirname(script_dir)
+    code_dir = os.path.dirname(approach_dir)
+    project_root = os.path.dirname(code_dir)
+
+    clif_config_path = os.path.join(project_root, 'clif_config.json')
+
+    try:
+        with open(clif_config_path, 'r') as f:
+            clif_config = json.load(f)
+        site_name = clif_config['site'].lower()
+        return site_name, project_root
+    except FileNotFoundError:
+        print(f"Warning: clif_config.json not found at {clif_config_path}")
+        print("Using default site name 'unknown'")
+        return 'unknown', project_root
+    except KeyError:
+        print("Warning: 'site' field not found in clif_config.json")
+        print("Using default site name 'unknown'")
+        return 'unknown', project_root
 
 
 def load_trained_models(config):
@@ -248,7 +280,7 @@ def calculate_detailed_metrics(y_test, results, config):
             'brier_score': brier_score_loss(y_test, y_pred_proba)
         }
 
-        # Calibration error
+        # Calibration data (full curve + error)
         try:
             n_bins = config['evaluation_config']['calibration_bins']
             fraction_of_positives, mean_predicted_value = calibration_curve(
@@ -256,8 +288,22 @@ def calculate_detailed_metrics(y_test, results, config):
             )
             calibration_error = np.mean(np.abs(fraction_of_positives - mean_predicted_value))
             metrics['calibration_error'] = calibration_error
+
+            # Save full calibration curve data
+            calibration_data = {
+                'fraction_of_positives': fraction_of_positives.tolist(),
+                'mean_predicted_value': mean_predicted_value.tolist(),
+                'n_bins': n_bins,
+                'calibration_error': calibration_error
+            }
         except:
             metrics['calibration_error'] = np.nan
+            calibration_data = {
+                'fraction_of_positives': [],
+                'mean_predicted_value': [],
+                'n_bins': 0,
+                'calibration_error': np.nan
+            }
 
         # Confusion matrix
         cm = confusion_matrix(y_test, y_pred)
@@ -266,6 +312,9 @@ def calculate_detailed_metrics(y_test, results, config):
         # ROC curve data
         fpr, tpr, roc_thresholds = roc_curve(y_test, y_pred_proba)
         precision, recall, pr_thresholds = precision_recall_curve(y_test, y_pred_proba)
+
+        # Decision curve data
+        decision_curve_data = calculate_decision_curve_data(y_test, y_pred_proba)
 
         detailed_results[model_type] = {
             'metrics': metrics,
@@ -278,7 +327,9 @@ def calculate_detailed_metrics(y_test, results, config):
                 'precision': precision.tolist(),
                 'recall': recall.tolist(),
                 'thresholds': pr_thresholds.tolist()
-            }
+            },
+            'calibration_curve': calibration_data,
+            'decision_curve': decision_curve_data
         }
 
         # Print summary
@@ -294,25 +345,72 @@ def calculate_detailed_metrics(y_test, results, config):
     return detailed_results
 
 
-def save_inference_results(detailed_results, y_test, test_ids, config):
+def save_inference_results(detailed_results, y_test, results, config):
     """
-    Save inference results and predictions for Stage 2 sharing
+    Save inference results, plots, and predictions for Stage 2 sharing
+    Enhanced with site-specific naming and comprehensive visualization data
     """
     print("Saving inference results...")
 
-    # Get output directory
-    script_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    project_root = os.path.dirname(script_dir)
-    results_dir = os.path.join(project_root, config['output_paths']['results_dir'])
-    os.makedirs(results_dir, exist_ok=True)
+    # Load site configuration
+    site_name, project_root = load_site_config()
+    print(f"Site: {site_name.upper()}")
 
-    # Save detailed metrics (aggregate statistics only)
-    metrics_path = os.path.join(results_dir, 'inference_metrics.json')
+    # Get output directories
+    results_dir = os.path.join(project_root, config['output_paths']['results_dir'])
+    plots_dir = os.path.join(project_root, config['output_paths']['plots_dir'])
+    os.makedirs(results_dir, exist_ok=True)
+    os.makedirs(plots_dir, exist_ok=True)
+
+    # Generate and save plots
+    print("Generating plots...")
+    plot_roc_curves(detailed_results, site_name, plots_dir)
+    plot_calibration_curves(y_test, results, detailed_results, site_name, plots_dir)
+    plot_decision_curves(detailed_results, site_name, plots_dir)
+
+    # Create enhanced JSON structure with site information and plot data
+    site_specific_results = {
+        'site': site_name,
+        'approach': config['approach_name'],
+        'stage': config['stage'],
+        'timestamp': datetime.now().isoformat(),
+        'data_summary': {
+            'test_set_size': len(y_test),
+            'mortality_rate': float(y_test.mean()),
+            'positive_cases': int(y_test.sum()),
+            'negative_cases': int(len(y_test) - y_test.sum())
+        },
+        'models': {}
+    }
+
+    # Add model-specific data (NO PHI - only aggregate metrics and curves)
+    for model_type in ['xgboost', 'nn', 'ensemble']:
+        site_specific_results['models'][model_type] = {
+            'metrics': detailed_results[model_type]['metrics'],
+            'plot_data': {
+                'roc_curve': {
+                    'fpr': detailed_results[model_type]['roc_curve']['fpr'],
+                    'tpr': detailed_results[model_type]['roc_curve']['tpr'],
+                    'thresholds': detailed_results[model_type]['roc_curve']['thresholds'],
+                    'auc': detailed_results[model_type]['metrics']['roc_auc']
+                },
+                'calibration_curve': detailed_results[model_type]['calibration_curve'],
+                'decision_curve': detailed_results[model_type]['decision_curve']
+            }
+        }
+
+    # Use site-specific filenames
+    metrics_filename = f'inference_metrics_{site_name}.json'
+    summary_filename = f'approach_1_stage_1_inference_summary_{site_name}.json'
+
+    # Save enhanced metrics file
+    metrics_path = os.path.join(results_dir, metrics_filename)
     with open(metrics_path, 'w') as f:
-        json.dump(detailed_results, f, indent=2)
+        json.dump(site_specific_results, f, indent=2)
 
     # Create summary report
     summary = {
+        'site': site_name,
         'approach': config['approach_name'],
         'stage': config['stage'],
         'inference_timestamp': datetime.now().isoformat(),
@@ -324,20 +422,176 @@ def save_inference_results(detailed_results, y_test, test_ids, config):
             'ensemble_auc': detailed_results['ensemble']['metrics']['roc_auc']
         },
         'files_created': {
-            'metrics': 'inference_metrics.json',
-            'summary': 'approach_1_stage_1_inference_summary.json'
-        }
+            'metrics': metrics_filename,
+            'summary': summary_filename,
+            'plots': {
+                'roc_curves': f'plots/roc_curves_{site_name}.png',
+                'calibration_curves': f'plots/calibration_curves_{site_name}.png',
+                'decision_curves': f'plots/decision_curves_{site_name}.png'
+            }
+        },
+        'data_safety_note': 'No PHI data included - only aggregate metrics and curve data'
     }
 
-    summary_path = os.path.join(results_dir, 'approach_1_stage_1_inference_summary.json')
+    summary_path = os.path.join(results_dir, summary_filename)
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=2)
 
     print(f"✅ Results saved to: {results_dir}")
     print(f"  - Metrics: {metrics_path}")
     print(f"  - Summary: {summary_path}")
+    print(f"  - Plots: {plots_dir}")
 
     return results_dir
+
+
+def calculate_decision_curve_data(y_test, y_pred_proba):
+    """
+    Calculate net benefit across threshold range for decision curve analysis
+    """
+    thresholds = np.linspace(0.01, 0.99, 50)
+    net_benefit = []
+    net_benefit_all = []
+    net_benefit_none = []
+
+    prevalence = np.mean(y_test)
+    n = len(y_test)
+
+    for threshold in thresholds:
+        y_pred = (y_pred_proba >= threshold).astype(int)
+        tp = np.sum((y_test == 1) & (y_pred == 1))
+        fp = np.sum((y_test == 0) & (y_pred == 1))
+
+        # Net benefit for this model
+        nb = (tp/n) - (fp/n) * (threshold/(1-threshold))
+
+        # Net benefit for treating all patients
+        nb_all = prevalence - (1-prevalence) * (threshold/(1-threshold))
+
+        # Net benefit for treating no patients
+        nb_none = 0.0
+
+        net_benefit.append(nb)
+        net_benefit_all.append(max(nb_all, 0))  # Cap at 0
+        net_benefit_none.append(nb_none)
+
+    return {
+        'thresholds': thresholds.tolist(),
+        'net_benefit': net_benefit,
+        'net_benefit_all': net_benefit_all,
+        'net_benefit_none': net_benefit_none
+    }
+
+
+def plot_roc_curves(detailed_results, site_name, plots_dir):
+    """Generate and save ROC curves for all models"""
+    plt.figure(figsize=(10, 8))
+
+    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e', 'ensemble': '#2ca02c'}
+    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network', 'ensemble': 'Ensemble'}
+
+    for model_type in ['xgboost', 'nn', 'ensemble']:
+        roc_data = detailed_results[model_type]['roc_curve']
+        auc = detailed_results[model_type]['metrics']['roc_auc']
+
+        plt.plot(roc_data['fpr'], roc_data['tpr'],
+                color=colors[model_type], linewidth=2,
+                label=f'{model_names[model_type]} (AUC = {auc:.3f})')
+
+    # Add diagonal reference line
+    plt.plot([0, 1], [0, 1], 'k--', alpha=0.5, linewidth=1)
+
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate', fontsize=12)
+    plt.ylabel('True Positive Rate', fontsize=12)
+    plt.title(f'ROC Curves - {site_name.upper()} Site', fontsize=14, fontweight='bold')
+    plt.legend(loc="lower right", fontsize=11)
+    plt.grid(alpha=0.3)
+
+    plt.tight_layout()
+    plot_path = os.path.join(plots_dir, f'roc_curves_{site_name}.png')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"  ✅ ROC curves saved: {plot_path}")
+
+
+def plot_calibration_curves(y_test, results, detailed_results, site_name, plots_dir):
+    """Generate calibration plots showing predicted vs observed probabilities"""
+    from sklearn.calibration import calibration_curve
+
+    plt.figure(figsize=(10, 8))
+
+    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e', 'ensemble': '#2ca02c'}
+    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network', 'ensemble': 'Ensemble'}
+
+    for model_type in ['xgboost', 'nn', 'ensemble']:
+        y_pred_proba = results[model_type]['y_pred_proba']
+
+        # Calculate calibration curve
+        fraction_of_positives, mean_predicted_value = calibration_curve(
+            y_test, y_pred_proba, n_bins=10, strategy='uniform'
+        )
+
+        plt.plot(mean_predicted_value, fraction_of_positives, "s-",
+                color=colors[model_type], linewidth=2, markersize=8,
+                label=f'{model_names[model_type]}')
+
+    # Add perfect calibration line
+    plt.plot([0, 1], [0, 1], 'k--', alpha=0.5, linewidth=1, label='Perfect Calibration')
+
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.0])
+    plt.xlabel('Mean Predicted Probability', fontsize=12)
+    plt.ylabel('Fraction of Positives', fontsize=12)
+    plt.title(f'Calibration Curves - {site_name.upper()} Site', fontsize=14, fontweight='bold')
+    plt.legend(loc="lower right", fontsize=11)
+    plt.grid(alpha=0.3)
+
+    plt.tight_layout()
+    plot_path = os.path.join(plots_dir, f'calibration_curves_{site_name}.png')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"  ✅ Calibration curves saved: {plot_path}")
+
+
+def plot_decision_curves(detailed_results, site_name, plots_dir):
+    """Generate decision analysis/net benefit curves"""
+    plt.figure(figsize=(10, 8))
+
+    colors = {'xgboost': '#1f77b4', 'nn': '#ff7f0e', 'ensemble': '#2ca02c'}
+    model_names = {'xgboost': 'XGBoost', 'nn': 'Neural Network', 'ensemble': 'Ensemble'}
+
+    # Plot model curves
+    for model_type in ['xgboost', 'nn', 'ensemble']:
+        decision_data = detailed_results[model_type]['decision_curve']
+
+        plt.plot(decision_data['thresholds'], decision_data['net_benefit'],
+                color=colors[model_type], linewidth=2,
+                label=f'{model_names[model_type]}')
+
+    # Add baseline curves
+    decision_data = detailed_results['xgboost']['decision_curve']  # Use any model for baselines
+    plt.plot(decision_data['thresholds'], decision_data['net_benefit_all'],
+            'k--', linewidth=2, label='Treat All')
+    plt.plot(decision_data['thresholds'], decision_data['net_benefit_none'],
+            'k:', linewidth=2, label='Treat None')
+
+    plt.xlim([0.0, 1.0])
+    plt.xlabel('Threshold Probability', fontsize=12)
+    plt.ylabel('Net Benefit', fontsize=12)
+    plt.title(f'Decision Analysis Curves - {site_name.upper()} Site', fontsize=14, fontweight='bold')
+    plt.legend(loc="upper right", fontsize=11)
+    plt.grid(alpha=0.3)
+
+    plt.tight_layout()
+    plot_path = os.path.join(plots_dir, f'decision_curves_{site_name}.png')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"  ✅ Decision curves saved: {plot_path}")
 
 
 def main():
@@ -385,7 +639,7 @@ def main():
         # Step 5: Save results
         print("💾 STEP 5: Saving inference results")
         print("-" * 50)
-        results_dir = save_inference_results(detailed_results, y_test, test_ids, config)
+        results_dir = save_inference_results(detailed_results, y_test, results, config)
         print()
 
         print("=" * 80)
