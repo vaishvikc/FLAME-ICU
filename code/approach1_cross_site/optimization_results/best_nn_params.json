@@ -1,0 +1,21 @@
+{
+  "model_type": "nn",
+  "optimization_timestamp": "2025-09-29T21:57:59.725470",
+  "n_trials": 100,
+  "best_score": 0.869441074535136,
+  "best_params": {
+    "learning_rate": 0.0011232186507608042,
+    "weight_decay": 0.000492487423067329,
+    "batch_size": 512,
+    "label_smoothing": 0.022104980413185205,
+    "architecture": "medium",
+    "dropout_rate": 0.4928001664243068,
+    "loss_type": "bce"
+  },
+  "feature_count": 332,
+  "study_stats": {
+    "n_complete_trials": 100,
+    "n_failed_trials": 0,
+    "n_pruned_trials": 0
+  }
+}

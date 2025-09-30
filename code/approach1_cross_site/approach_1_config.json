@@ -23,19 +23,19 @@
     "handle_missing": {
       "xgboost": "none",
       "nn": "fill_negative_one"
-    },
-    "missing_threshold": 0.95
+    }
   },
 
   "xgboost_params": {
-    "eta": 0.1,
-    "max_depth": 6,
-    "min_child_weight": 5,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
-    "gamma": 0.1,
-    "reg_alpha": 0.1,
-    "reg_lambda": 1.0,
+    "eta": 0.026515633215149336,
+    "max_depth": 8,
+    "min_child_weight": 3,
+    "max_delta_step": 2,
+    "subsample": 0.5366705199674231,
+    "colsample_bytree": 0.6854010290052701,
+    "gamma": 0.3923060451149189,
+    "reg_alpha": 0.07735244751655446,
+    "reg_lambda": 0.01216908399903694,
     "objective": "binary:logistic",
     "eval_metric": "logloss",
     "seed": 42,
@@ -45,17 +45,19 @@
   },
 
   "nn_params": {
-    "hidden_sizes": [128, 64, 32],
-    "dropout_rate": 0.3,
+    "hidden_sizes": [64, 32],
+    "dropout_rate": 0.4928001664243068,
     "activation": "relu",
     "batch_norm": true,
-    "learning_rate": 0.001,
-    "weight_decay": 0.01,
-    "batch_size": 256,
+    "learning_rate": 0.0011232186507608042,
+    "weight_decay": 0.000492487423067329,
+    "batch_size": 512,
     "epochs": 100,
     "early_stopping_patience": 10,
     "gradient_clip": 1.0,
     "use_class_weights": true,
+    "use_focal_loss": false,
+    "label_smoothing": 0.022104980413185205,
     "seed": 42
   },
 

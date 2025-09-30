@@ -95,13 +95,8 @@ def prepare_features(df, config):
     # Extract features
     features_df = df[feature_cols].copy()
 
-    # Handle columns with excessive missing values
-    missing_pct = features_df.isnull().sum() / len(features_df)
-    high_missing_cols = missing_pct[missing_pct > config['preprocessing']['missing_threshold']].index.tolist()
-
-    if high_missing_cols:
-        print(f"Dropping {len(high_missing_cols)} columns with >{config['preprocessing']['missing_threshold']*100}% missing values")
-        features_df = features_df.drop(columns=high_missing_cols)
+    # Keep all features regardless of missing value percentage
+    # Missing values will be handled model-specifically during training/inference
 
     # Note: Model-specific missing value handling will be applied at runtime:
     # - XGBoost: no imputation needed (handles NaN natively)
@@ -229,15 +224,23 @@ def train_nn_approach1(splits, config, feature_names):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    # Calculate class weights if enabled
-    if config['nn_params'].get('use_class_weights', True):
+    # Setup loss function
+    if config['nn_params'].get('use_focal_loss', False):
+        # Use Focal Loss for better class imbalance handling
+        focal_alpha = config['nn_params'].get('focal_alpha', 0.75)
+        focal_gamma = config['nn_params'].get('focal_gamma', 2.0)
+        criterion = FocalLoss(alpha=focal_alpha, gamma=focal_gamma)
+        print(f"Using Focal Loss with alpha: {focal_alpha}, gamma: {focal_gamma}")
+    elif config['nn_params'].get('use_class_weights', True):
+        # Calculate improved class weights using square root
         class_counts = np.bincount(splits['train']['target'])
-        class_weights = len(splits['train']['target']) / (2 * class_counts)
-        pos_weight = torch.FloatTensor([class_weights[1] / class_weights[0]]).to(device)
+        # Use sqrt of inverse frequency for more balanced weighting
+        sqrt_inv_freq = np.sqrt(len(splits['train']['target']) / (2 * class_counts))
+        pos_weight = torch.FloatTensor([sqrt_inv_freq[1] / sqrt_inv_freq[0]]).to(device)
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        print(f"Using class weights with pos_weight: {pos_weight.item():.2f}")
+        print(f"Using improved class weights with pos_weight: {pos_weight.item():.2f}")
     else:
-        criterion = nn.BCELoss()
+        criterion = nn.BCEWithLogitsLoss()
 
     optimizer = optim.Adam(
         model.parameters(),
@@ -263,12 +266,20 @@ def train_nn_approach1(splits, config, feature_names):
         for batch_x, batch_y in train_loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
 
+            # Apply label smoothing if configured
+            if config['nn_params'].get('label_smoothing', 0.0) > 0:
+                label_smooth = config['nn_params']['label_smoothing']
+                # Smooth labels: 0 -> label_smooth/2, 1 -> 1 - label_smooth/2
+                batch_y_smooth = batch_y * (1 - label_smooth) + label_smooth / 2
+            else:
+                batch_y_smooth = batch_y
+
             optimizer.zero_grad()
-            if isinstance(criterion, nn.BCEWithLogitsLoss):
+            if isinstance(criterion, (nn.BCEWithLogitsLoss, FocalLoss)):
                 outputs = model(batch_x, return_logits=True)
             else:
                 outputs = model(batch_x)
-            loss = criterion(outputs, batch_y)
+            loss = criterion(outputs, batch_y_smooth)
             loss.backward()
 
             if gradient_clip:
@@ -287,7 +298,7 @@ def train_nn_approach1(splits, config, feature_names):
             for batch_x, batch_y in val_loader:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
 
-                if isinstance(criterion, nn.BCEWithLogitsLoss):
+                if isinstance(criterion, (nn.BCEWithLogitsLoss, FocalLoss)):
                     outputs_logits = model(batch_x, return_logits=True)
                     outputs = torch.sigmoid(outputs_logits)
                     loss = criterion(outputs_logits, batch_y)
@@ -451,6 +462,35 @@ def save_model_artifacts(model, transformer, feature_names, config, model_type, 
 
     print(f"Model artifacts saved to: {model_dir}")
     return model_dir
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for addressing class imbalance
+    Formula: FL(p_t) = -α(1-p_t)^γ log(p_t)
+    """
+    def __init__(self, alpha=0.75, gamma=2.0):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        # Apply sigmoid to get probabilities
+        probs = torch.sigmoid(inputs)
+
+        # Calculate standard BCE loss (without reduction)
+        BCE_loss = nn.functional.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+
+        # Calculate p_t (probability of correct class)
+        p_t = probs * targets + (1 - probs) * (1 - targets)
+
+        # Calculate alpha_t (class-specific weight)
+        alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+
+        # Apply focal loss formula
+        F_loss = alpha_t * (1 - p_t) ** self.gamma * BCE_loss
+
+        return F_loss.mean()
 
 
 class ICUMortalityNN(nn.Module):

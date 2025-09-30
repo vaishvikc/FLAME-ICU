@@ -1,0 +1,23 @@
+{
+  "model_type": "xgboost",
+  "optimization_timestamp": "2025-09-29T21:47:35.079465",
+  "n_trials": 200,
+  "best_score": 0.8698106764033192,
+  "best_params": {
+    "max_depth": 8,
+    "learning_rate": 0.026515633215149336,
+    "min_child_weight": 3,
+    "subsample": 0.5366705199674231,
+    "colsample_bytree": 0.6854010290052701,
+    "reg_lambda": 0.01216908399903694,
+    "reg_alpha": 0.07735244751655446,
+    "max_delta_step": 2,
+    "gamma": 0.3923060451149189
+  },
+  "feature_count": 332,
+  "study_stats": {
+    "n_complete_trials": 200,
+    "n_failed_trials": 0,
+    "n_pruned_trials": 0
+  }
+}
