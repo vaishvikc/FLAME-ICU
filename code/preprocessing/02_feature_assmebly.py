@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.15.2"
+__generated_with = "0.16.2"
 app = marimo.App(width="full")
 
 
@@ -10,7 +10,7 @@ def _():
     return (mo,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -78,6 +78,7 @@ def _():
         apply_outlier_handling,
         ensure_dir,
         get_output_path,
+        json,
         os,
         pd,
     )
@@ -97,7 +98,7 @@ def _(ensure_dir, get_output_path, json):
     output_dir = get_output_path('preprocessing', '')
     ensure_dir(output_dir)
     print(f"Output directory: {output_dir}")
-    return config, output_dir
+    return (output_dir,)
 
 
 @app.cell
@@ -266,8 +267,7 @@ def _(category_filters, clif, cohort_df):
     print(f"This will filter data to 24-hour windows before creating the wide dataset")
 
     # Create wide dataset using ClifOrchestrator
-    wide_df = clif.create_wide_dataset(
-        tables_to_load=['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous'],
+    clif.create_wide_dataset(
         category_filters=category_filters,
         cohort_df=cohort_time_filter,  # Pass cohort_df for time window filtering
         save_to_data_location=False,
@@ -277,8 +277,10 @@ def _(category_filters, clif, cohort_df):
         show_progress=True
     )
 
+    wide_df =clif.wide_df.copy()
+
     print(f"✅ Wide dataset created successfully")
-    print(f"Shape: {wide_df.shape}")
+    print(f"Shape: {clif.wide_df.shape}")
     print(f"Hospitalizations: {wide_df['hospitalization_id'].nunique()}")
     print(f"Date range: {wide_df['event_time'].min()} to {wide_df['event_time'].max()}")
     return (wide_df,)
@@ -294,7 +296,7 @@ def _(mo):
 def _(cohort_df, pd, wide_df):
     # Add demographics by inner joining with cohort_df
     print("Adding demographics from cohort to wide dataset...")
-    
+
     # Inner join with cohort_df to add demographic and time window columns
     # This will also filter out any hospitalizations without demographics
     wide_df_with_demographics = pd.merge(
@@ -305,12 +307,12 @@ def _(cohort_df, pd, wide_df):
         on='hospitalization_id',
         how='inner'  # Inner join filters out any missing demographics
     )
-    
+
     print(f"✅ Demographics added to wide dataset")
     print(f"Shape before demographics: {wide_df.shape}")
     print(f"Shape after demographics: {wide_df_with_demographics.shape}")
     print(f"Hospitalizations with demographics: {wide_df_with_demographics['hospitalization_id'].nunique()}")
-    
+
     # Show demographic distribution
     print("\n=== Demographic Distribution ===")
     print("Sex distribution:")
@@ -321,7 +323,7 @@ def _(cohort_df, pd, wide_df):
     print(wide_df_with_demographics['ethnicity_category'].value_counts())
     print("\nLanguage distribution:")
     print(wide_df_with_demographics['language_category'].value_counts())
-    
+
     return (wide_df_with_demographics,)
 
 

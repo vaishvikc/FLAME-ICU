@@ -1,0 +1,90 @@
+{
+  "approach_name": "approach_1_cross_site_validation",
+  "stage": 1,
+  "description": "Approach 1: Cross-Site Model Validation - Train at RUSH, test generalization without local training",
+
+  "data_config": {
+    "consolidated_features_path": "protected_outputs/preprocessing/consolidated_features.parquet",
+    "feature_selection": "all_except_identifiers",
+    "exclude_columns": [
+      "hospitalization_id",
+      "patient_id",
+      "ethnicity_category",
+      "race_category",
+      "language_category",
+      "row_type",
+      "split_type",
+      "disposition"
+    ],
+    "target_column": "disposition"
+  },
+
+  "preprocessing": {
+    "handle_missing": {
+      "xgboost": "none",
+      "nn": "fill_negative_one"
+    },
+    "missing_threshold": 0.95
+  },
+
+  "xgboost_params": {
+    "eta": 0.1,
+    "max_depth": 6,
+    "min_child_weight": 5,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "gamma": 0.1,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "seed": 42,
+    "num_rounds": 500,
+    "early_stopping_rounds": 20,
+    "use_class_weights": true
+  },
+
+  "nn_params": {
+    "hidden_sizes": [128, 64, 32],
+    "dropout_rate": 0.3,
+    "activation": "relu",
+    "batch_norm": true,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "batch_size": 256,
+    "epochs": 100,
+    "early_stopping_patience": 10,
+    "gradient_clip": 1.0,
+    "use_class_weights": true,
+    "seed": 42
+  },
+
+  "evaluation_config": {
+    "metrics": [
+      "roc_auc",
+      "accuracy",
+      "precision",
+      "recall",
+      "f1_score",
+      "pr_auc",
+      "brier_score",
+      "calibration_error"
+    ],
+    "threshold": 0.5,
+    "calibration_bins": 10
+  },
+
+  "output_paths": {
+    "models_dir": "models_storage/approach_1/stage_1/",
+    "results_dir": "protected_outputs/share_to_box/approach_1_stage_1/",
+    "plots_dir": "protected_outputs/share_to_box/approach_1_stage_1/plots/"
+  },
+
+  "random_seeds": {
+    "global": 42,
+    "data_split": 42,
+    "xgboost": 42,
+    "nn": 42,
+    "preprocessing": 42
+  }
+}

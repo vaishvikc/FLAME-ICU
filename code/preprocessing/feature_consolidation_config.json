@@ -1,0 +1,177 @@
+{
+  "description": "Feature consolidation configuration for FLAME-ICU preprocessing pipeline. Maps all 101 columns from by_event_wide_df.parquet to their aggregation strategies.",
+
+  "constant_features": {
+    "description": "Features that remain constant across events within a hospitalization - take first value",
+    "columns": [
+      "hospitalization_id",
+      "patient_id",
+      "age_at_admission",
+      "ethnicity_category",
+      "race_category",
+      "language_category",
+      "row_type",
+      "split_type"
+    ]
+  },
+
+  "delete_features": {
+    "description": "Features to remove from final dataset - temporal or redundant columns",
+    "columns": [
+      "hospital_id",
+      "event_time",
+      "event_type",
+      "in_dttm",
+      "out_dttm",
+      "location_category",
+      "location_type",
+      "day_number",
+      "hosp_id_day_key",
+      "hour_24_start_dttm",
+      "hour_24_end_dttm"
+    ]
+  },
+
+  "one_hot_encode": {
+    "description": "Categorical features to one-hot encode based on unique values in data",
+    "columns": [
+      "mode_category",
+      "device_category"
+    ]
+  },
+
+  "binary_transform": {
+    "description": "Features to transform into binary variables",
+    "sex_category": {
+      "new_column": "is_female",
+      "condition": "female"
+    }
+  },
+
+  "aggregate_features": {
+    "description": "Numeric features to aggregate using min, max, median, mean operations",
+    "operations": ["min", "max", "median", "mean"],
+
+    "vitals": {
+      "description": "Vital signs measurements",
+      "columns": [
+        "heart_rate",
+        "map",
+        "respiratory_rate",
+        "spo2",
+        "temp_c",
+        "weight_kg",
+        "height_cm"
+      ]
+    },
+
+    "labs": {
+      "description": "Laboratory test results",
+      "columns": [
+        "albumin",
+        "alkaline_phosphatase",
+        "alt",
+        "ast",
+        "basophils_absolute",
+        "basophils_percent",
+        "bicarbonate",
+        "bilirubin_conjugated",
+        "bilirubin_total",
+        "bilirubin_unconjugated",
+        "bun",
+        "calcium_ionized",
+        "calcium_total",
+        "chloride",
+        "creatinine",
+        "crp",
+        "eosinophils_absolute",
+        "eosinophils_percent",
+        "esr",
+        "ferritin",
+        "glucose_fingerstick",
+        "glucose_serum",
+        "hemoglobin",
+        "inr",
+        "lactate",
+        "ldh",
+        "lymphocytes_absolute",
+        "lymphocytes_percent",
+        "magnesium",
+        "monocytes_absolute",
+        "monocytes_percent",
+        "neutrophils_absolute",
+        "neutrophils_percent",
+        "pco2_arterial",
+        "pco2_venous",
+        "ph_arterial",
+        "ph_venous",
+        "phosphate",
+        "platelet_count",
+        "po2_arterial",
+        "potassium",
+        "procalcitonin",
+        "pt",
+        "ptt",
+        "so2_arterial",
+        "so2_central_venous",
+        "so2_mixed_venous",
+        "sodium",
+        "total_protein",
+        "troponin_i",
+        "troponin_t",
+        "wbc"
+      ]
+    },
+
+    "medications": {
+      "description": "Continuous medication administrations (vasoactives and sedatives)",
+      "columns": [
+        "norepinephrine",
+        "epinephrine",
+        "phenylephrine",
+        "angiotensin",
+        "vasopressin",
+        "dopamine",
+        "dobutamine",
+        "milrinone",
+        "isoproterenol",
+        "propofol",
+        "dexmedetomidine",
+        "ketamine",
+        "midazolam",
+        "fentanyl",
+        "hydromorphone",
+        "morphine",
+        "remifentanil",
+        "pentobarbital",
+        "lorazepam"
+      ]
+    },
+
+    "respiratory": {
+      "description": "Respiratory support settings",
+      "columns": [
+        "fio2_set"
+      ]
+    }
+  },
+
+  "metadata": {
+    "total_columns_input": 101,
+    "columns_accounted_for": {
+      "constant": 8,
+      "delete": 11,
+      "one_hot": 2,
+      "binary_transform": 1,
+      "aggregate": 79
+    },
+    "expected_output_columns": {
+      "constant": 8,
+      "binary": 1,
+      "one_hot_estimated": 15,
+      "aggregated": 316,
+      "disposition": 1,
+      "total_estimated": 341
+    }
+  }
+}

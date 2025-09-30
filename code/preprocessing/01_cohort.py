@@ -411,13 +411,6 @@ def _(cohort_final, ensure_dir, get_output_path, json, os):
         'date_range': {
             'start': cohort_final['start_dttm'].min().isoformat(),
             'end': cohort_final['start_dttm'].max().isoformat()
-        },
-        'criteria': {
-            'min_age': 18,
-            'years': '2020-2021',
-            'icu_window': '48_hours_from_admission',
-            'min_icu_duration': '24_hours',
-            'icu_or_icu_handling': 'continuous_icu'
         }
     }
 

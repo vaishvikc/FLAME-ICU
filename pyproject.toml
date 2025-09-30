@@ -1,0 +1,36 @@
+[project]
+name = "flame-icu"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "altair",
+    "arrow",
+    "DateTime",
+    "duckdb",
+    "ipykernel",
+    "ipython",
+    "jupyter",
+    "marimo",
+    "matplotlib",
+    "matplotlib-inline",
+    "nbclient",
+    "nbconvert",
+    "nbformat",
+    "numpy",
+    "pandas",
+    "papermill",
+    "plotly",
+    "polars",
+    "pyarrow",
+    "pytz",
+    "requests",
+    "scipy",
+    "seaborn",
+    "tqdm",
+    "clifpy",
+    "torch",
+    "xgboost",
+    "scikit-learn",
+]

@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.15.2"
+__generated_with = "0.16.2"
 app = marimo.App(width="full")
 
 
@@ -10,7 +10,7 @@ def _():
     return (mo,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -30,7 +30,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Setup and Configuration""")
     return
@@ -80,7 +80,7 @@ def _(os):
     print(f"Data path: {data_path}")
     print(f"Output path: {output_path}")
     print(f"Graphs path: {graphs_path}")
-    return data_path, output_path, graphs_path
+    return data_path, graphs_path, output_path
 
 
 @app.cell
@@ -142,7 +142,7 @@ def _(mo):
 
 
 @app.cell
-def _(df_with_hours):
+def _(df_with_hours, pl):
     # Identify numeric columns for analysis
     exclude_columns = [
         'hospitalization_id', 'event_time', 'hour_24_start_dttm', 
@@ -155,7 +155,7 @@ def _(df_with_hours):
         col for col in df_with_hours.columns 
         if col not in exclude_columns and df_with_hours[col].dtype in [pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64]
     ]
-    
+
     # Track categorical respiratory columns separately
     categorical_columns = []
     respiratory_categorical = ['mode_category', 'device_category']
@@ -163,7 +163,7 @@ def _(df_with_hours):
         if col in df_with_hours.columns and col not in numeric_columns:
             categorical_columns.append(col)
             print(f"Added categorical respiratory column: {col}")
-    
+
     # Combine for coverage analysis
     all_analysis_columns = numeric_columns + categorical_columns
 
@@ -212,7 +212,7 @@ def _(df_with_hours):
     for cat_name, feat_list in feature_categories.items():
         if feat_list:
             print(f"  {cat_name}: {len(feat_list)} features")
-    return feature_categories, numeric_columns, categorical_columns, all_analysis_columns
+    return feature_categories, numeric_columns
 
 
 @app.cell
@@ -277,15 +277,15 @@ def _(mo):
 
 
 @app.cell
-def _(all_coverage, alt, pl, os, graphs_path):
+def _(all_coverage, alt, graphs_path, os, pl):
     # Create heatmap for vitals
     vitals_data = all_coverage.filter(pl.col('category') == 'vitals').to_pandas()
-    
+
     # Ensure hour_bucket is sorted
     if len(vitals_data) > 0:
         vitals_data['hour_bucket'] = vitals_data['hour_bucket'].astype(int)
         vitals_data = vitals_data.sort_values('hour_bucket')
-    
+
     # Sort features by average coverage
     vitals_order = vitals_data.groupby('feature')['coverage_pct'].mean().sort_values().index.tolist() if len(vitals_data) > 0 else []
 
@@ -298,7 +298,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
                 title='Vital Signs',
                 sort=vitals_order)
     )
-    
+
     # Heatmap layer
     vitals_heatmap = vitals_base.mark_rect().encode(
         color=alt.Color('coverage_pct:Q',
@@ -312,7 +312,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.Tooltip('total_hospitalizations:Q', title='Total N')
         ]
     )
-    
+
     # Text annotation layer
     vitals_text = vitals_base.mark_text(baseline='middle', fontSize=10, fontWeight='bold').encode(
         text=alt.Text('coverage_pct:Q', format='.0f'),
@@ -322,19 +322,20 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.value('black')
         )
     )
-    
+
     # Combine layers
     vitals_chart = (vitals_heatmap + vitals_text).properties(
         width=1200,
         height=max(200, len(vitals_order) * 30) if len(vitals_order) > 0 else 200,
         title='Vitals: % of Hospitalizations with Data by Hour'
     ).configure_view(strokeWidth=0).configure_axis(domain=False, labelFontSize=12, titleFontSize=14)
-    
+
     # Save chart
     if len(vitals_data) > 0:
         vitals_chart.save(os.path.join(graphs_path, 'vitals_hourly_coverage.html'))
-    
+
     vitals_chart
+    return
 
 
 @app.cell
@@ -344,15 +345,15 @@ def _(mo):
 
 
 @app.cell
-def _(all_coverage, alt, pl, os, graphs_path):
+def _(all_coverage, alt, graphs_path, os, pl):
     # Create heatmap for labs
     labs_data = all_coverage.filter(pl.col('category') == 'labs').to_pandas()
-    
+
     # Ensure hour_bucket is sorted
     if len(labs_data) > 0:
         labs_data['hour_bucket'] = labs_data['hour_bucket'].astype(int)
         labs_data = labs_data.sort_values('hour_bucket')
-    
+
     # Sort features by average coverage
     labs_order = labs_data.groupby('feature')['coverage_pct'].mean().sort_values().index.tolist() if len(labs_data) > 0 else []
 
@@ -365,7 +366,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
                 title='Laboratory Values',
                 sort=labs_order)
     )
-    
+
     # Heatmap layer
     labs_heatmap = labs_base.mark_rect().encode(
         color=alt.Color('coverage_pct:Q',
@@ -379,7 +380,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.Tooltip('total_hospitalizations:Q', title='Total N')
         ]
     )
-    
+
     # Text annotation layer
     labs_text = labs_base.mark_text(baseline='middle', fontSize=10, fontWeight='bold').encode(
         text=alt.Text('coverage_pct:Q', format='.0f'),
@@ -389,19 +390,20 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.value('black')
         )
     )
-    
+
     # Combine layers
     labs_chart = (labs_heatmap + labs_text).properties(
         width=1200,
         height=max(400, len(labs_order) * 20) if len(labs_order) > 0 else 400,
         title='Labs: % of Hospitalizations with Data by Hour'
     ).configure_view(strokeWidth=0).configure_axis(domain=False, labelFontSize=12, titleFontSize=14)
-    
+
     # Save chart
     if len(labs_data) > 0:
         labs_chart.save(os.path.join(graphs_path, 'labs_hourly_coverage.html'))
-    
+
     labs_chart
+    return
 
 
 @app.cell
@@ -411,15 +413,15 @@ def _(mo):
 
 
 @app.cell
-def _(all_coverage, alt, pl, os, graphs_path):
+def _(all_coverage, alt, graphs_path, os, pl):
     # Create heatmap for medications
     meds_data = all_coverage.filter(pl.col('category') == 'medications').to_pandas()
-    
+
     # Ensure hour_bucket is sorted
     if len(meds_data) > 0:
         meds_data['hour_bucket'] = meds_data['hour_bucket'].astype(int)
         meds_data = meds_data.sort_values('hour_bucket')
-    
+
     # Sort features by average coverage
     meds_order = meds_data.groupby('feature')['coverage_pct'].mean().sort_values().index.tolist() if len(meds_data) > 0 else []
 
@@ -432,7 +434,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
                 title='Medications',
                 sort=meds_order)
     )
-    
+
     # Heatmap layer
     meds_heatmap = meds_base.mark_rect().encode(
         color=alt.Color('coverage_pct:Q',
@@ -446,7 +448,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.Tooltip('total_hospitalizations:Q', title='Total N')
         ]
     )
-    
+
     # Text annotation layer
     meds_text = meds_base.mark_text(baseline='middle', fontSize=10, fontWeight='bold').encode(
         text=alt.Text('coverage_pct:Q', format='.0f'),
@@ -456,19 +458,20 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.value('black')
         )
     )
-    
+
     # Combine layers
     meds_chart = (meds_heatmap + meds_text).properties(
         width=1200,
         height=max(300, len(meds_order) * 25) if len(meds_order) > 0 else 300,
         title='Medications: % of Hospitalizations with Data by Hour'
     ).configure_view(strokeWidth=0).configure_axis(domain=False, labelFontSize=12, titleFontSize=14)
-    
+
     # Save chart
     if len(meds_data) > 0:
         meds_chart.save(os.path.join(graphs_path, 'medications_hourly_coverage.html'))
-    
+
     meds_chart
+    return
 
 
 @app.cell
@@ -478,15 +481,15 @@ def _(mo):
 
 
 @app.cell
-def _(all_coverage, alt, pl, os, graphs_path):
+def _(all_coverage, alt, graphs_path, os, pl):
     # Create heatmap for respiratory
     resp_data = all_coverage.filter(pl.col('category') == 'respiratory').to_pandas()
-    
+
     # Ensure hour_bucket is sorted
     if len(resp_data) > 0:
         resp_data['hour_bucket'] = resp_data['hour_bucket'].astype(int)
         resp_data = resp_data.sort_values('hour_bucket')
-    
+
     # Sort features by average coverage
     resp_order = resp_data.groupby('feature')['coverage_pct'].mean().sort_values().index.tolist() if len(resp_data) > 0 else []
 
@@ -499,7 +502,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
                 title='Respiratory Features',
                 sort=resp_order)
     )
-    
+
     # Heatmap layer
     resp_heatmap = resp_base.mark_rect().encode(
         color=alt.Color('coverage_pct:Q',
@@ -513,7 +516,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.Tooltip('total_hospitalizations:Q', title='Total N')
         ]
     )
-    
+
     # Text annotation layer
     resp_text = resp_base.mark_text(baseline='middle', fontSize=10, fontWeight='bold').encode(
         text=alt.Text('coverage_pct:Q', format='.0f'),
@@ -523,19 +526,20 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.value('black')
         )
     )
-    
+
     # Combine layers
     resp_chart = (resp_heatmap + resp_text).properties(
         width=1200,
         height=max(200, len(resp_order) * 35) if len(resp_order) > 0 else 200,
         title='Respiratory: % of Hospitalizations with Data by Hour'
     ).configure_view(strokeWidth=0).configure_axis(domain=False, labelFontSize=12, titleFontSize=14)
-    
+
     # Save chart
     if len(resp_data) > 0:
         resp_chart.save(os.path.join(graphs_path, 'respiratory_hourly_coverage.html'))
-    
+
     resp_chart
+    return
 
 
 @app.cell
@@ -545,15 +549,15 @@ def _(mo):
 
 
 @app.cell
-def _(all_coverage, alt, pl, os, graphs_path):
+def _(all_coverage, alt, graphs_path, os, pl):
     # Create heatmap for other features
     other_data = all_coverage.filter(pl.col('category') == 'other').to_pandas()
-    
+
     # Ensure hour_bucket is sorted
     if len(other_data) > 0:
         other_data['hour_bucket'] = other_data['hour_bucket'].astype(int)
         other_data = other_data.sort_values('hour_bucket')
-    
+
     # Sort features by average coverage
     other_order = other_data.groupby('feature')['coverage_pct'].mean().sort_values().index.tolist() if len(other_data) > 0 else []
 
@@ -566,7 +570,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
                 title='Other Features',
                 sort=other_order)
     )
-    
+
     # Heatmap layer
     other_heatmap = other_base.mark_rect().encode(
         color=alt.Color('coverage_pct:Q',
@@ -580,7 +584,7 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.Tooltip('total_hospitalizations:Q', title='Total N')
         ]
     )
-    
+
     # Text annotation layer
     other_text = other_base.mark_text(baseline='middle', fontSize=10, fontWeight='bold').encode(
         text=alt.Text('coverage_pct:Q', format='.0f'),
@@ -590,19 +594,20 @@ def _(all_coverage, alt, pl, os, graphs_path):
             alt.value('black')
         )
     )
-    
+
     # Combine layers
     other_chart = (other_heatmap + other_text).properties(
         width=1200,
         height=max(300, len(other_order) * 20) if len(other_order) > 0 else 300,
         title='Other Features: % of Hospitalizations with Data by Hour'
     ).configure_view(strokeWidth=0).configure_axis(domain=False, labelFontSize=12, titleFontSize=14)
-    
+
     # Save chart
     if len(other_data) > 0:
         other_chart.save(os.path.join(graphs_path, 'other_features_hourly_coverage.html'))
-    
+
     other_chart
+    return
 
 
 @app.cell
@@ -619,7 +624,7 @@ def _(df_with_hours, numeric_columns, pl):
     for feat_name in numeric_columns:
         if feat_name not in df_with_hours.columns:
             continue
-        
+
         # Skip categorical columns for numeric statistics
         if df_with_hours[feat_name].dtype == pl.Utf8:
             print(f"Skipping categorical column in Table 1: {feat_name}")
