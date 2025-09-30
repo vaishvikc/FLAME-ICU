@@ -78,8 +78,8 @@
 
   "output_paths": {
     "models_dir": "models_storage/approach_1/stage_1/",
-    "results_dir": "protected_outputs/share_to_box/approach_1_stage_1/",
-    "plots_dir": "protected_outputs/share_to_box/approach_1_stage_1/plots/"
+    "results_dir": "share_to_box/approach_1_stage_1/",
+    "plots_dir": "share_to_box/approach_1_stage_1/plots/"
   },
 
   "random_seeds": {

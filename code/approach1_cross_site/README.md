@@ -75,7 +75,7 @@ The script will:
 
 ## Output Location
 
-Results are saved to: `protected_outputs/share_to_box/approach_1_stage_1/`
+Results are saved to: `share_to_box/approach_1_stage_1/`
 
 Files created:
 - `inference_metrics_[your_site].json` - Complete metrics and curve data

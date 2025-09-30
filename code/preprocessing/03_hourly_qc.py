@@ -24,7 +24,7 @@ def _(mo):
     - Calculate coverage statistics: % of hospitalizations with data by hour
     - Create heatmaps grouped by feature category (vitals, labs, medications, respiratory, other)
     - Generate Table 1 summary statistics (missing%, min, max, median, Q1, Q3)
-    - Save results to share_to_box folder
+    - Save results to share_to_box/qc folder
     """
     )
     return
@@ -64,23 +64,26 @@ def _(os):
     cwd = os.getcwd()
     if cwd.endswith(('code/preprocessing', 'code\\preprocessing')):
         data_path = os.path.join('..', '..', 'protected_outputs', 'preprocessing')
-        output_path = os.path.join('..', '..', 'protected_outputs', 'share_to_box')
+        output_path = os.path.join('..', '..', 'share_to_box')
     else:
         data_path = os.path.join('protected_outputs', 'preprocessing')
-        output_path = os.path.join('protected_outputs', 'share_to_box')
+        output_path = os.path.join('share_to_box')
 
     data_path = os.path.abspath(data_path)
     output_path = os.path.abspath(output_path)
-    graphs_path = os.path.join(output_path, 'graphs')
+    qc_path = os.path.join(output_path, 'qc')
+    graphs_path = os.path.join(qc_path, 'graphs')
 
     # Create output directories
     os.makedirs(output_path, exist_ok=True)
+    os.makedirs(qc_path, exist_ok=True)
     os.makedirs(graphs_path, exist_ok=True)
 
     print(f"Data path: {data_path}")
     print(f"Output path: {output_path}")
+    print(f"QC path: {qc_path}")
     print(f"Graphs path: {graphs_path}")
-    return data_path, graphs_path, output_path
+    return data_path, graphs_path, output_path, qc_path
 
 
 @app.cell
@@ -670,16 +673,16 @@ def _(mo):
 
 
 @app.cell
-def _(all_coverage, os, output_path, table_one_rounded):
+def _(all_coverage, os, qc_path, table_one_rounded):
     # Save all results to CSV files
     try:
         # Save coverage data
-        coverage_path = os.path.join(output_path, 'hourly_coverage_by_feature.csv')
+        coverage_path = os.path.join(qc_path, 'hourly_coverage_by_feature.csv')
         all_coverage.to_pandas().to_csv(coverage_path, index=False)
         print(f"✅ Saved coverage data: {coverage_path}")
 
         # Save Table 1 statistics
-        table_one_path = os.path.join(output_path, 'table_one.csv')
+        table_one_path = os.path.join(qc_path, 'table_one.csv')
         table_one_rounded.to_pandas().to_csv(table_one_path, index=False)
         print(f"✅ Saved Table 1 statistics: {table_one_path}")
 
@@ -709,7 +712,7 @@ def _(mo):
     3. ✅ **Coverage Analysis**: Calculated % of hospitalizations with data for each feature by hour
     4. ✅ **Visualizations**: Created heatmaps for each feature category using Altair
     5. ✅ **Table 1**: Generated comprehensive statistics (missing%, min, max, median, Q1, Q3)
-    6. ✅ **Output**: Saved results to share_to_box folder
+    6. ✅ **Output**: Saved results to share_to_box/qc folder
 
     ### Key Insights:
     - **Hour-level bucketing**: Each hospitalization's events are bucketed into 0-23 hours from their ICU admission
@@ -717,8 +720,9 @@ def _(mo):
     - **Feature quality**: Table 1 provides comprehensive quality metrics for model development
 
     ### Output Files:
-    - `hourly_coverage_by_feature.csv`: Coverage statistics by hour and feature
-    - `table_one.csv`: Summary statistics for all features
+    - `share_to_box/qc/hourly_coverage_by_feature.csv`: Coverage statistics by hour and feature
+    - `share_to_box/qc/table_one.csv`: Summary statistics for all features
+    - `share_to_box/qc/graphs/*.html`: Interactive heatmaps for each feature category
     """
     )
     return
