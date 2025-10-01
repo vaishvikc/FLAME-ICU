@@ -83,7 +83,7 @@ def _(os):
     print(f"Output path: {output_path}")
     print(f"QC path: {qc_path}")
     print(f"Graphs path: {graphs_path}")
-    return data_path, graphs_path, output_path, qc_path
+    return data_path, graphs_path, qc_path
 
 
 @app.cell
@@ -161,7 +161,7 @@ def _(df_with_hours, pl):
 
     # Track categorical respiratory columns separately
     categorical_columns = []
-    respiratory_categorical = ['mode_category', 'device_category']
+    respiratory_categorical = ['device_category']
     for col in respiratory_categorical:
         if col in df_with_hours.columns and col not in numeric_columns:
             categorical_columns.append(col)
@@ -187,12 +187,12 @@ def _(df_with_hours, pl):
                      'pco2', 'po2', 'so2', 'lymphocytes', 'neutrophils', 'eosinophils',
                      'basophils', 'monocytes', 'inr', 'pt', 'ptt', 'ferritin', 'ldh',
                      'procalcitonin', 'crp', 'esr', 'phosphate', 'total_protein']
-    meds_keywords = ['norepinephrine', 'epinephrine', 'phenylephrine', 'vasopressin', 
+    meds_keywords = ['norepinephrine', 'epinephrine', 'phenylephrine', 'vasopressin',
                      'dopamine', 'dobutamine', 'propofol', 'fentanyl', 'midazolam',
-                     'angiotensin', 'milrinone', 'isoproterenol', 'dexmedetomidine',
-                     'ketamine', 'hydromorphone', 'morphine', 'remifentanil', 
-                     'pentobarbital', 'lorazepam']
-    resp_keywords = ['mode_category', 'device_category', 'fio2_set']
+                     'milrinone', 'isoproterenol', 'dexmedetomidine',
+                     'ketamine', 'hydromorphone', 'morphine', 'remifentanil',
+                     'lorazepam']
+    resp_keywords = ['device_category', 'fio2_set']
 
     # Categorize columns
     for column_name in all_analysis_columns:
@@ -624,25 +624,37 @@ def _(df_with_hours, numeric_columns, pl):
     # Calculate comprehensive statistics for each feature
     table_one_stats = []
 
-    for feat_name in numeric_columns:
-        if feat_name not in df_with_hours.columns:
+    for _feat_name in numeric_columns:
+        if _feat_name not in df_with_hours.columns:
             continue
 
         # Skip categorical columns for numeric statistics
-        if df_with_hours[feat_name].dtype == pl.Utf8:
-            print(f"Skipping categorical column in Table 1: {feat_name}")
+        if df_with_hours[_feat_name].dtype == pl.Utf8:
+            print(f"Skipping categorical column in Table 1: {_feat_name}")
             continue
 
         # Calculate statistics using Polars
         feature_stats = df_with_hours.select([
-            pl.lit(feat_name).alias('feature'),
-            (pl.col(feat_name).is_null().sum() / pl.len() * 100).alias('missing_pct'),
-            pl.col(feat_name).min().cast(pl.Float64).alias('min_value'),
-            pl.col(feat_name).max().cast(pl.Float64).alias('max_value'),
-            pl.col(feat_name).median().cast(pl.Float64).alias('median'),
-            pl.col(feat_name).quantile(0.25).cast(pl.Float64).alias('q1'),
-            pl.col(feat_name).quantile(0.75).cast(pl.Float64).alias('q3'),
-            pl.col(feat_name).is_not_null().sum().cast(pl.Int64).alias('n_observations')
+            pl.lit(_feat_name).alias('feature'),
+            (pl.col(_feat_name).is_null().sum() / pl.len() * 100).alias('missing_pct'),
+            pl.col(_feat_name).min().cast(pl.Float64).alias('min_value'),
+            pl.col(_feat_name).max().cast(pl.Float64).alias('max_value'),
+            pl.col(_feat_name).median().cast(pl.Float64).alias('median'),
+            pl.col(_feat_name).quantile(0.25).cast(pl.Float64).alias('q1'),
+            pl.col(_feat_name).quantile(0.75).cast(pl.Float64).alias('q3'),
+            pl.col(_feat_name).is_not_null().sum().cast(pl.Int64).alias('n_observations')
+        ])
+
+        # Calculate number of unique hospitalizations with non-null values for this feature
+        n_hosps = df_with_hours.filter(
+            pl.col(_feat_name).is_not_null()
+        ).select(
+            pl.col('hospitalization_id').n_unique()
+        ).item()
+
+        # Add n_hospitalizations column
+        feature_stats = feature_stats.with_columns([
+            pl.lit(n_hosps).cast(pl.Int64).alias('n_hospitalizations')
         ])
 
         table_one_stats.append(feature_stats)
@@ -701,30 +713,290 @@ def _(all_coverage, os, qc_path, table_one_rounded):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-    ## Summary
+    mo.md(r"""## Generate Comprehensive Table 1 (JSON Format)""")
+    return
 
-    This notebook has successfully completed hourly quality control analysis:
 
-    1. ✅ **Data Processing**: Loaded event-wide dataset and bucketed into 24-hour bins per hospitalization
-    2. ✅ **Feature Categorization**: Grouped features into vitals, labs, medications, respiratory, and other categories  
-    3. ✅ **Coverage Analysis**: Calculated % of hospitalizations with data for each feature by hour
-    4. ✅ **Visualizations**: Created heatmaps for each feature category using Altair
-    5. ✅ **Table 1**: Generated comprehensive statistics (missing%, min, max, median, Q1, Q3)
-    6. ✅ **Output**: Saved results to share_to_box/qc folder
+@app.cell
+def _(data_path, os, pl):
+    import json
 
-    ### Key Insights:
-    - **Hour-level bucketing**: Each hospitalization's events are bucketed into 0-23 hours from their ICU admission
-    - **Coverage patterns**: Visualizations show temporal patterns in data availability
-    - **Feature quality**: Table 1 provides comprehensive quality metrics for model development
+    # Load cohort data
+    cohort_path = os.path.join(data_path, 'icu_cohort.parquet')
+    cohort_df = pl.read_parquet(cohort_path)
 
-    ### Output Files:
-    - `share_to_box/qc/hourly_coverage_by_feature.csv`: Coverage statistics by hour and feature
-    - `share_to_box/qc/table_one.csv`: Summary statistics for all features
-    - `share_to_box/qc/graphs/*.html`: Interactive heatmaps for each feature category
-    """
+    # Load clif config for site name
+    config_path = os.path.join('..', '..', 'clif_config.json')
+    if not os.path.exists(config_path):
+        config_path = 'clif_config.json'
+
+    with open(config_path, 'r') as _f:
+        clif_config = json.load(_f)
+
+    site_name = clif_config.get('site', 'unknown')
+
+    print(f"✅ Loaded cohort: {len(cohort_df)} patients")
+    print(f"Site: {site_name}")
+    return cohort_df, json, site_name
+
+
+@app.cell
+def _(cohort_df, df_with_hours, numeric_columns, pl):
+    # Aggregate event-level data to patient-level using median
+    # For each hospitalization, take the median of each feature across all events
+
+    agg_expressions = []
+
+    for _col_name in numeric_columns:
+        if _col_name in df_with_hours.columns and df_with_hours[_col_name].dtype in [pl.Float32, pl.Float64, pl.Int32, pl.Int64]:
+            agg_expressions.append(pl.col(_col_name).median().alias(_col_name))
+
+    # Add device_category for IMV check
+    if 'device_category' in df_with_hours.columns:
+        # Check if any event has IMV
+        agg_expressions.append(
+            (pl.col('device_category') == 'imv').any().alias('has_imv')
+        )
+
+    patient_level_df = df_with_hours.group_by('hospitalization_id').agg(agg_expressions)
+
+    # Merge with cohort to get demographics and outcome
+    patient_level_with_demographics = patient_level_df.join(
+        cohort_df.select([
+            'hospitalization_id', 'disposition',
+            'sex_category', 'race_category', 'ethnicity_category', 'language_category'
+        ]),
+        on='hospitalization_id',
+        how='left'
     )
+
+    # Add age from cohort (it's in the event data as a constant per patient)
+    if 'age_at_admission' in df_with_hours.columns:
+        age_per_patient = df_with_hours.group_by('hospitalization_id').agg([
+            pl.col('age_at_admission').first().alias('age_at_admission')
+        ])
+        patient_level_with_demographics = patient_level_with_demographics.join(
+            age_per_patient,
+            on='hospitalization_id',
+            how='left'
+        )
+
+    print(f"✅ Created patient-level dataset: {len(patient_level_with_demographics)} patients")
+    return (patient_level_with_demographics,)
+
+
+@app.cell
+def _(patient_level_with_demographics, pl, site_name):
+    # Calculate comprehensive Table 1 statistics
+    table_one_data = {
+        "metadata": {
+            "site": site_name,
+            "n_patients": int(len(patient_level_with_demographics)),
+            "n_hospitalizations": int(len(patient_level_with_demographics)),
+            "mortality_rate": float(patient_level_with_demographics['disposition'].mean()) if 'disposition' in patient_level_with_demographics.columns else None,
+            "mortality_rate_percent": float(patient_level_with_demographics['disposition'].mean() * 100) if 'disposition' in patient_level_with_demographics.columns else None
+        },
+        "demographics": [],
+        "clinical_features": []
+    }
+
+    # Age statistics
+    if 'age_at_admission' in patient_level_with_demographics.columns:
+        age_stats = patient_level_with_demographics.select([
+            pl.col('age_at_admission').mean().alias('mean'),
+            pl.col('age_at_admission').std().alias('std'),
+            pl.col('age_at_admission').median().alias('median'),
+            pl.col('age_at_admission').quantile(0.25).alias('q1'),
+            pl.col('age_at_admission').quantile(0.75).alias('q3')
+        ]).to_dicts()[0]
+
+        table_one_data["demographics"].append({
+            "variable": "Age (years)",
+            "value_type": "continuous",
+            "mean_sd": f"{age_stats['mean']:.1f} ± {age_stats['std']:.1f}",
+            "median_iqr": f"{age_stats['median']:.1f} [{age_stats['q1']:.1f}-{age_stats['q3']:.1f}]"
+        })
+
+    # Sex
+    if 'sex_category' in patient_level_with_demographics.columns:
+        sex_counts = patient_level_with_demographics.group_by('sex_category').agg([
+            pl.len().alias('count')
+        ]).to_dicts()
+
+        total_n = len(patient_level_with_demographics)
+        for _sex_row in sex_counts:
+            sex = _sex_row['sex_category']
+            count = _sex_row['count']
+            pct = (count / total_n) * 100
+            table_one_data["demographics"].append({
+                "variable": f"Sex: {sex}",
+                "value_type": "categorical",
+                "n": int(count),
+                "percent": round(pct, 1),
+                "formatted": f"{count} ({pct:.1f}%)"
+            })
+
+    # Race
+    if 'race_category' in patient_level_with_demographics.columns:
+        race_counts = patient_level_with_demographics.group_by('race_category').agg([
+            pl.len().alias('count')
+        ]).to_dicts()
+
+        total_n = len(patient_level_with_demographics)
+        for _race_row in race_counts:
+            race = _race_row['race_category']
+            count = _race_row['count']
+            pct = (count / total_n) * 100
+            table_one_data["demographics"].append({
+                "variable": f"Race: {race}",
+                "value_type": "categorical",
+                "n": int(count),
+                "percent": round(pct, 1),
+                "formatted": f"{count} ({pct:.1f}%)"
+            })
+
+    # Ethnicity
+    if 'ethnicity_category' in patient_level_with_demographics.columns:
+        ethnicity_counts = patient_level_with_demographics.group_by('ethnicity_category').agg([
+            pl.len().alias('count')
+        ]).to_dicts()
+
+        total_n = len(patient_level_with_demographics)
+        for _eth_row in ethnicity_counts:
+            eth = _eth_row['ethnicity_category']
+            count = _eth_row['count']
+            pct = (count / total_n) * 100
+            table_one_data["demographics"].append({
+                "variable": f"Ethnicity: {eth}",
+                "value_type": "categorical",
+                "n": int(count),
+                "percent": round(pct, 1),
+                "formatted": f"{count} ({pct:.1f}%)"
+            })
+
+    # Language (English vs Non-English)
+    if 'language_category' in patient_level_with_demographics.columns:
+        # Create binary English vs Non-English
+        lang_summary = patient_level_with_demographics.with_columns([
+            (pl.col('language_category') == 'english').alias('is_english')
+        ])
+
+        english_count = int(lang_summary['is_english'].sum())
+        non_english_count = len(lang_summary) - english_count
+        total_n = len(lang_summary)
+
+        table_one_data["demographics"].append({
+            "variable": "Language: English",
+            "value_type": "categorical",
+            "n": english_count,
+            "percent": round((english_count / total_n) * 100, 1),
+            "formatted": f"{english_count} ({(english_count / total_n) * 100:.1f}%)"
+        })
+
+        table_one_data["demographics"].append({
+            "variable": "Language: Non-English",
+            "value_type": "categorical",
+            "n": non_english_count,
+            "percent": round((non_english_count / total_n) * 100, 1),
+            "formatted": f"{non_english_count} ({(non_english_count / total_n) * 100:.1f}%)"
+        })
+
+    # IMV usage
+    if 'has_imv' in patient_level_with_demographics.columns:
+        imv_count = int(patient_level_with_demographics['has_imv'].sum())
+        total_n = len(patient_level_with_demographics)
+        imv_pct = (imv_count / total_n) * 100
+
+        table_one_data["demographics"].append({
+            "variable": "Invasive Mechanical Ventilation (IMV)",
+            "value_type": "categorical",
+            "n": imv_count,
+            "percent": round(imv_pct, 1),
+            "formatted": f"{imv_count} ({imv_pct:.1f}%)"
+        })
+
+    print(f"✅ Calculated demographics for {len(table_one_data['demographics'])} variables")
+    return (table_one_data,)
+
+
+@app.cell
+def _(numeric_columns, patient_level_with_demographics, pl, table_one_data):
+    # Add clinical features with median [IQR]
+    feature_priority = [
+        'heart_rate', 'map', 'respiratory_rate', 'spo2', 'temp_c',
+        'creatinine', 'hemoglobin', 'wbc', 'lactate', 'platelet_count',
+        'sodium', 'potassium', 'bicarbonate', 'glucose_serum',
+        'norepinephrine', 'vasopressin', 'epinephrine',
+        'fio2_set'
+    ]
+
+    # Process priority features first, then all others
+    processed_features = set()
+
+    for _feat_name_priority in feature_priority:
+        if _feat_name_priority in patient_level_with_demographics.columns:
+            feat_stats = patient_level_with_demographics.select([
+                pl.col(_feat_name_priority).median().alias('median'),
+                pl.col(_feat_name_priority).quantile(0.25).alias('q1'),
+                pl.col(_feat_name_priority).quantile(0.75).alias('q3'),
+                pl.col(_feat_name_priority).is_not_null().sum().alias('n_non_null')
+            ]).to_dicts()[0]
+
+            if feat_stats['median'] is not None:
+                table_one_data["clinical_features"].append({
+                    "variable": _feat_name_priority,
+                    "value_type": "continuous",
+                    "median": round(float(feat_stats['median']), 2),
+                    "q1": round(float(feat_stats['q1']), 2),
+                    "q3": round(float(feat_stats['q3']), 2),
+                    "n_observations": int(feat_stats['n_non_null']),
+                    "formatted": f"{feat_stats['median']:.2f} [{feat_stats['q1']:.2f}-{feat_stats['q3']:.2f}]"
+                })
+                processed_features.add(_feat_name_priority)
+
+    # Add remaining numeric features
+    for _feat_name_remaining in numeric_columns:
+        if _feat_name_remaining not in processed_features and _feat_name_remaining in patient_level_with_demographics.columns:
+            feat_stats = patient_level_with_demographics.select([
+                pl.col(_feat_name_remaining).median().alias('median'),
+                pl.col(_feat_name_remaining).quantile(0.25).alias('q1'),
+                pl.col(_feat_name_remaining).quantile(0.75).alias('q3'),
+                pl.col(_feat_name_remaining).is_not_null().sum().alias('n_non_null')
+            ]).to_dicts()[0]
+
+            if feat_stats['median'] is not None:
+                table_one_data["clinical_features"].append({
+                    "variable": _feat_name_remaining,
+                    "value_type": "continuous",
+                    "median": round(float(feat_stats['median']), 2),
+                    "q1": round(float(feat_stats['q1']), 2),
+                    "q3": round(float(feat_stats['q3']), 2),
+                    "n_observations": int(feat_stats['n_non_null']),
+                    "formatted": f"{feat_stats['median']:.2f} [{feat_stats['q1']:.2f}-{feat_stats['q3']:.2f}]"
+                })
+
+    print(f"✅ Added {len(table_one_data['clinical_features'])} clinical features")
+    return
+
+
+@app.cell
+def _(json, os, qc_path, table_one_data):
+    # Save Table 1 as JSON
+    table_one_json_path = os.path.join(qc_path, 'table_one.json')
+
+    with open(table_one_json_path, 'w') as _f:
+        json.dump(table_one_data, _f, indent=2)
+
+    print(f"✅ Saved comprehensive Table 1 to: {table_one_json_path}")
+    print(f"File size: {os.path.getsize(table_one_json_path) / 1024:.1f} KB")
+
+    # Display summary
+    print("\n=== Table 1 Summary ===")
+    print(f"Site: {table_one_data['metadata']['site']}")
+    print(f"Patients: {table_one_data['metadata']['n_patients']}")
+    print(f"Mortality rate: {table_one_data['metadata']['mortality_rate_percent']:.1f}%")
+    print(f"Demographics: {len(table_one_data['demographics'])} variables")
+    print(f"Clinical features: {len(table_one_data['clinical_features'])} variables")
     return
 
 

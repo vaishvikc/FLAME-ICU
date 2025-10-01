@@ -145,7 +145,7 @@ def create_summary_report(config, xgb_results, nn_results, feature_names):
         'data_info': {
             'n_features': len(feature_names),
             'feature_names': feature_names,
-            'scaling_method': 'QuantileTransformer (applied in preprocessing)',
+            'scaling_method': 'RobustScaler (applied in preprocessing)',
             'missing_value_handling': config['preprocessing']['handle_missing']
         },
         'model_performance': {

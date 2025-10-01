@@ -23,7 +23,7 @@ def _(mo):
     - Load feature consolidation configuration mapping each column to aggregation strategy
     - Consolidate into one row per hospitalization using appropriate aggregations:
       - **Constants**: age, demographics, identifiers (take first value)
-      - **One-hot encode**: mode_category, device_category
+      - **One-hot encode**: device_category (excluding 'other')
       - **Binary transform**: sex_category → is_female
       - **Aggregations**: vitals, labs, medications (min, max, median, mean)
     - Merge with disposition outcome from cohort
@@ -275,6 +275,11 @@ def _(config, df, pl):
     for _col_name in _onehot_cols:
         # Get unique values for this column
         unique_values = df[_col_name].unique().drop_nulls().to_list()
+
+        # Filter out 'other' from device_category one-hot encoding (after lowercasing in preprocessing)
+        if _col_name == 'device_category':
+            unique_values = [v for v in unique_values if str(v).lower() != 'other']
+
         print(f"One-hot encoding {_col_name}: {unique_values}")
 
         for _cat_value in unique_values:
@@ -443,17 +448,11 @@ def _(df, final_df, pl):
 
 
 @app.cell
-def _(df_pandas):
-    df_pandas.columns.to_list()
-    return
-
-
-@app.cell
 def _(final_df_with_split):
-    print("=== Applying QuantileTransformer Scaling ===")
+    print("=== Applying RobustScaler Scaling ===")
 
     # Import scaling libraries
-    from sklearn.preprocessing import QuantileTransformer
+    from sklearn.preprocessing import RobustScaler
 
     # Convert to pandas for sklearn compatibility
     df_pandas = final_df_with_split.to_pandas()
@@ -481,13 +480,12 @@ def _(final_df_with_split):
     print(f"Training data shape: {X_train.shape}")
     print(f"Total data shape: {X_all.shape}")
 
-    # Fit QuantileTransformer on training data only
-    print("Fitting QuantileTransformer on training data...")
-    transformer = QuantileTransformer(
-        n_quantiles=1000,
-        output_distribution='normal',
-        subsample=100000,
-        random_state=42
+    # Fit RobustScaler on training data only
+    print("Fitting RobustScaler on training data...")
+    transformer = RobustScaler(
+        with_centering=True,
+        with_scaling=True,
+        quantile_range=(25.0, 75.0)
     )
     transformer.fit(X_train)
 
@@ -501,7 +499,7 @@ def _(final_df_with_split):
 
     print("✅ Scaling completed")
     print(f"Scaled features shape: {X_scaled.shape}")
-    return df_pandas, df_scaled, feature_cols, transformer
+    return df_scaled, feature_cols, transformer
 
 
 @app.cell(hide_code=True)
@@ -523,7 +521,7 @@ def _(df_scaled, feature_cols, get_output_path, json, pickle, transformer):
     transformer_path = get_output_path('preprocessing', 'preprocessing_transformer.pkl')
     with open(transformer_path, 'wb') as f:
         pickle.dump(transformer, f)
-    print(f"✅ QuantileTransformer saved to: {transformer_path}")
+    print(f"✅ RobustScaler saved to: {transformer_path}")
 
     # Save feature names
     feature_names_path = get_output_path('preprocessing', 'feature_names.pkl')
@@ -533,12 +531,11 @@ def _(df_scaled, feature_cols, get_output_path, json, pickle, transformer):
 
     # Save preprocessing metadata
     preprocessing_info = {
-        'scaling_method': 'QuantileTransformer',
+        'scaling_method': 'RobustScaler',
         'scaling_params': {
-            'n_quantiles': 1000,
-            'output_distribution': 'normal',
-            'subsample': 100000,
-            'random_state': 42
+            'with_centering': True,
+            'with_scaling': True,
+            'quantile_range': [25.0, 75.0]
         },
         'n_features': len(feature_cols),
         'training_data_shape': df_scaled[df_scaled['split_type'] == 'train'].shape,

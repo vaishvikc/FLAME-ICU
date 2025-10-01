@@ -218,26 +218,26 @@ def _(cohort_ids):
             'weight_kg', 'height_cm'
         ],
         'labs': [  # Common lab values
-            "albumin", "alkaline_phosphatase", "alt", "ast", "basophils_percent", "basophils_absolute", 
-            "bicarbonate", "bilirubin_total", "bilirubin_conjugated", "bilirubin_unconjugated",
-            "bun", "calcium_total", "calcium_ionized", "chloride", "creatinine", "crp", 
-            "eosinophils_percent", "eosinophils_absolute", "esr", "ferritin", "glucose_fingerstick", 
+            "albumin", "alkaline_phosphatase", "alt", "ast", "basophils_percent", "basophils_absolute",
+            "bicarbonate", "bilirubin_total", "bilirubin_conjugated",
+            "bun", "calcium_total", "calcium_ionized", "chloride", "creatinine", "crp",
+            "eosinophils_percent", "eosinophils_absolute", "esr", "ferritin", "glucose_fingerstick",
             "glucose_serum", "hemoglobin", "phosphate", "inr", "lactate", "ldh",
-            "lymphocytes_percent", "lymphocytes_absolute", "magnesium", "monocytes_percent", 
+            "lymphocytes_percent", "lymphocytes_absolute", "magnesium", "monocytes_percent",
             "monocytes_absolute", "neutrophils_percent", "neutrophils_absolute",
-            "pco2_arterial", "po2_arterial", "pco2_venous", "ph_arterial", "ph_venous", 
-            "platelet_count", "potassium", "procalcitonin", "pt", "ptt", 
-            "so2_arterial", "so2_mixed_venous", "so2_central_venous", "sodium",
-            "total_protein", "troponin_i", "troponin_t", "wbc"
+            "pco2_arterial", "po2_arterial", "pco2_venous", "ph_arterial", "ph_venous",
+            "platelet_count", "potassium", "procalcitonin", "pt", "ptt",
+            "so2_arterial", "so2_central_venous", "sodium",
+            "total_protein", "troponin_i", "wbc"
         ],
         'medication_admin_continuous': [  # Vasoactives and sedatives
-            "norepinephrine", "epinephrine", "phenylephrine", "angiotensin", "vasopressin",
+            "norepinephrine", "epinephrine", "phenylephrine", "vasopressin",
             "dopamine", "dobutamine", "milrinone", "isoproterenol",
             "propofol", "dexmedetomidine", "ketamine", "midazolam", "fentanyl",
-            "hydromorphone", "morphine", "remifentanil", "pentobarbital", "lorazepam"
+            "hydromorphone", "morphine", "remifentanil", "lorazepam"
         ],
         'respiratory_support': [  # All respiratory support categories
-            'mode_category', 'device_category', 'fio2_set'
+            'device_category', 'fio2_set'
         ]
     }
 
@@ -359,10 +359,10 @@ def _(clif, pd, wide_df_with_demographics):
     )
 
     # Create additional split with validation set
-    # Training: 2018-2021, Validation: 2022, Testing: 2023-2024
+    # Training: 2018-2022, Validation: 2023, Testing: 2024
     wide_df_with_admission['split_type'] = wide_df_with_admission['admission_year'].apply(
-        lambda year: 'train' if 2018 <= year <= 2021 else
-                     'val' if year == 2022 else
+        lambda year: 'train' if 2018 <= year <= 2022 else
+                     'val' if year == 2023 else
                      'test'
     )
 
@@ -389,37 +389,106 @@ def _(clif, pd, wide_df_with_demographics):
 
 @app.cell
 def _(mo):
+    mo.md(r"""## Standardize Categorical Columns""")
+    return
+
+
+@app.cell
+def _(wide_df_final):
+    # Standardize all categorical column values to lowercase for consistency
+    print("Standardizing categorical columns to lowercase...")
+
+    # Identify categorical columns (object dtype)
+    categorical_cols = wide_df_final.select_dtypes(include=['object']).columns.tolist()
+
+    # Exclude specific columns that should not be lowercased
+    exclude_cols = ['hospitalization_id', 'event_time']
+    categorical_cols = [col for col in categorical_cols if col not in exclude_cols]
+
+    print(f"Found {len(categorical_cols)} categorical columns to standardize:")
+    print(f"  {categorical_cols}")
+
+    # Show before values
+    print("\n=== Before Standardization ===")
+    for _col in categorical_cols:
+        unique_vals = wide_df_final[_col].dropna().unique()[:5]
+        print(f"{_col}: {unique_vals.tolist()}")
+
+    # Create standardized dataset
+    wide_df_standardized = wide_df_final.copy()
+
+    # Convert all categorical columns to lowercase
+    for _col in categorical_cols:
+        if _col in wide_df_standardized.columns:
+            wide_df_standardized[_col] = wide_df_standardized[_col].str.lower()
+
+    # Show after values
+    print("\n=== After Standardization ===")
+    for _col in categorical_cols:
+        unique_vals = wide_df_standardized[_col].dropna().unique()[:5]
+        print(f"{_col}: {unique_vals.tolist()}")
+
+    print(f"\n✅ Categorical columns standardized to lowercase")
+    print(f"Final dataset shape: {wide_df_standardized.shape}")
+
+    return (wide_df_standardized,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Remove mode_category Column""")
+    return
+
+
+@app.cell
+def _(wide_df_standardized):
+    # Drop mode_category column entirely as requested
+    print("Removing mode_category column...")
+
+    if 'mode_category' in wide_df_standardized.columns:
+        wide_df_cleaned = wide_df_standardized.drop(columns=['mode_category'])
+        print(f"✅ mode_category column removed")
+        print(f"Shape after removal: {wide_df_cleaned.shape}")
+    else:
+        wide_df_cleaned = wide_df_standardized.copy()
+        print("⚠️ mode_category column not found in dataset")
+
+    return (wide_df_cleaned,)
+
+
+@app.cell
+def _(mo):
     mo.md(r"""## Save Final Event-Wide Dataset""")
     return
 
 
 @app.cell
-def _(get_output_path, os, pd, wide_df_final):
+def _(get_output_path, os, pd, wide_df_cleaned):
     # Save final event-wide dataset
     print("Saving final event-wide dataset...")
 
     # Save to protected_outputs/preprocessing/
     output_path = get_output_path('preprocessing', 'by_event_wide_df.parquet')
-    wide_df_final.to_parquet(output_path, index=False)
+    wide_df_cleaned.to_parquet(output_path, index=False)
 
     print(f"✅ Event-wide dataset saved to: {output_path}")
     print(f"File size: {os.path.getsize(output_path) / 1024**2:.1f} MB")
-    print(f"Shape: {wide_df_final.shape}")
+    print(f"Shape: {wide_df_cleaned.shape}")
 
     # Display final summary
     print("\n=== Final Dataset Summary ===")
-    print(f"Total records: {len(wide_df_final):,}")
-    print(f"Unique hospitalizations: {wide_df_final['hospitalization_id'].nunique():,}")
-    print(f"Columns: {wide_df_final.shape[1]}")
+    print(f"Total records: {len(wide_df_cleaned):,}")
+    print(f"Unique hospitalizations: {wide_df_cleaned['hospitalization_id'].nunique():,}")
+    print(f"Columns: {wide_df_cleaned.shape[1]}")
 
     # Show detailed temporal split with unique hospitalizations
-    if 'row_type' in wide_df_final.columns:
+    if 'row_type' in wide_df_cleaned.columns:
         print(f"\n=== Temporal Split Details ===")
-        temporal_summary = wide_df_final.groupby('row_type').agg({
+        temporal_summary = wide_df_cleaned.groupby('row_type').agg({
             'hospitalization_id': 'nunique',
             'event_time': 'count'
         }).rename(columns={
-            'hospitalization_id': 'unique_hospitalizations', 
+            'hospitalization_id': 'unique_hospitalizations',
             'event_time': 'total_records'
         })
 
@@ -431,7 +500,7 @@ def _(get_output_path, os, pd, wide_df_final):
         print(f"\n=== Mortality Prevalence by Temporal Split ===")
 
         # Get unique hospitalization-outcome pairs from cohort
-        hosp_outcomes = wide_df_final[['hospitalization_id', 'row_type']].drop_duplicates()
+        hosp_outcomes = wide_df_cleaned[['hospitalization_id', 'row_type']].drop_duplicates()
 
         # Load cohort data to get disposition
         cohort_path_for_prevalence = get_output_path('preprocessing', 'icu_cohort.parquet')
@@ -457,12 +526,12 @@ def _(get_output_path, os, pd, wide_df_final):
     # Show sample columns
     print(f"\n=== Dataset Structure ===")
     print(f"Sample columns (first 20):")
-    print(wide_df_final.columns[:20].tolist())
-    if len(wide_df_final.columns) > 20:
-        print(f"... and {len(wide_df_final.columns) - 20} more columns")
+    print(wide_df_standardized.columns[:20].tolist())
+    if len(wide_df_standardized.columns) > 20:
+        print(f"... and {len(wide_df_standardized.columns) - 20} more columns")
 
     # Show time range
-    print(f"\nTime range: {wide_df_final['event_time'].min()} to {wide_df_final['event_time'].max()}")
+    print(f"\nTime range: {wide_df_standardized['event_time'].min()} to {wide_df_standardized['event_time'].max()}")
 
     print("\n🎉 Feature extraction completed successfully!")
     return
