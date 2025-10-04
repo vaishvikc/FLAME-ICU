@@ -31,7 +31,11 @@ from approach_1_utils import (
     train_xgboost_approach1,
     train_nn_approach1,
     evaluate_model,
-    save_model_artifacts
+    save_model_artifacts,
+    extract_xgboost_feature_importance,
+    calculate_permutation_importance,
+    save_feature_importance,
+    plot_feature_importance
 )
 
 warnings.filterwarnings('ignore')
@@ -71,11 +75,30 @@ def main():
         print("✅ XGBoost training completed")
         print()
 
+        # Step 2a: Extract XGBoost feature importance
+        print("📊 STEP 2a: Extracting XGBoost feature importance")
+        print("-" * 50)
+        xgb_importance = extract_xgboost_feature_importance(xgb_model, feature_names)
+        save_feature_importance(xgb_importance, 'xgboost', config)
+        plot_feature_importance(xgb_importance, 'xgboost', config, top_n=20)
+        print()
+
         # Step 3: Train Neural Network model
         print("🧠 STEP 3: Training Neural Network model")
         print("-" * 50)
         nn_model, nn_history = train_nn_approach1(splits, config, feature_names)
         print("✅ Neural Network training completed")
+        print()
+
+        # Step 3a: Calculate NN feature importance
+        print("📊 STEP 3a: Calculating Neural Network feature importance")
+        print("-" * 50)
+        nn_importance = calculate_permutation_importance(
+            nn_model, splits['val']['features'], splits['val']['target'],
+            config, feature_names, n_repeats=5
+        )
+        save_feature_importance(nn_importance, 'nn', config)
+        plot_feature_importance(nn_importance, 'nn', config, top_n=20)
         print()
 
         # Step 4: Evaluate models
@@ -107,7 +130,7 @@ def main():
         # Step 6: Create summary report
         print("📋 STEP 6: Creating summary report")
         print("-" * 50)
-        create_summary_report(config, xgb_results, nn_results, feature_names)
+        create_summary_report(config, xgb_results, nn_results, feature_names, xgb_importance, nn_importance)
         print()
 
         print("=" * 80)
@@ -128,7 +151,7 @@ def main():
         raise
 
 
-def create_summary_report(config, xgb_results, nn_results, feature_names):
+def create_summary_report(config, xgb_results, nn_results, feature_names, xgb_importance, nn_importance):
     """Create a comprehensive summary report"""
 
     # Get output directory
@@ -164,11 +187,23 @@ def create_summary_report(config, xgb_results, nn_results, feature_names):
                 'val_f1': nn_results['val']['metrics']['f1_score']
             }
         },
+        'feature_importance': {
+            'xgboost_top_10_gain': xgb_importance['gain'][:10],
+            'nn_top_10_permutation': nn_importance[:10]
+        },
         'next_steps': {
             'stage_2_instructions': "Use trained models for cross-site testing",
             'model_locations': {
                 'xgboost': f"{config['output_paths']['models_dir']}xgboost/",
                 'neural_network': f"{config['output_paths']['models_dir']}nn/"
+            },
+            'feature_importance_files': {
+                'xgboost': f"{config['output_paths']['results_dir']}xgboost_feature_importance.json",
+                'neural_network': f"{config['output_paths']['results_dir']}nn_feature_importance.json"
+            },
+            'feature_importance_plots': {
+                'xgboost': f"{config['output_paths']['plots_dir']}xgboost_importance_top20.png",
+                'neural_network': f"{config['output_paths']['plots_dir']}nn_importance_top20.png"
             }
         }
     }

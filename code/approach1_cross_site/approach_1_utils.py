@@ -83,12 +83,34 @@ def load_and_preprocess_data(config):
 def prepare_features(df, config):
     """
     Prepare features by selecting columns and handling missing values
+
+    Supports two modes:
+    - "explicit_list": Use exact feature list from config (for multi-site consistency)
+    - "all_except_identifiers": Use all columns except those in exclude_columns
     """
     print("Preparing features...")
 
-    # Get feature columns (exclude specified columns)
-    exclude_cols = config['data_config']['exclude_columns']
-    feature_cols = [col for col in df.columns if col not in exclude_cols]
+    feature_selection_mode = config['data_config'].get('feature_selection', 'all_except_identifiers')
+
+    if feature_selection_mode == 'explicit_list':
+        # Use explicit feature list from config (ensures multi-site consistency)
+        feature_cols = config['data_config']['feature_columns']
+        print(f"Using explicit feature list from config: {len(feature_cols)} features")
+
+        # Check which features are available in the data
+        available_features = [col for col in feature_cols if col in df.columns]
+        missing_features = [col for col in feature_cols if col not in df.columns]
+
+        if missing_features:
+            print(f"⚠️  Warning: {len(missing_features)} features from config not found in data:")
+            print(f"  {missing_features[:10]}{'...' if len(missing_features) > 10 else ''}")
+
+        feature_cols = available_features
+    else:
+        # Use all columns except excluded ones
+        exclude_cols = config['data_config']['exclude_columns']
+        feature_cols = [col for col in df.columns if col not in exclude_cols]
+        print(f"Using all columns except {len(exclude_cols)} excluded columns")
 
     print(f"Total features selected: {len(feature_cols)}")
 
@@ -127,7 +149,24 @@ def apply_missing_value_handling(X, config, model_type):
     elif missing_strategy == 'fill_negative_one':
         # Neural Network - fill with -1
         print(f"Filling missing values with -1 for {model_type}")
-        return X.fillna(-1)
+        X_filled = X.fillna(-1)
+
+        # Ensure all columns are numeric (convert if possible, error if not)
+        non_numeric_cols = X_filled.select_dtypes(include=['object']).columns.tolist()
+        if non_numeric_cols:
+            print(f"⚠️  Converting {len(non_numeric_cols)} object columns to numeric: {non_numeric_cols[:5]}...")
+            for col in non_numeric_cols:
+                try:
+                    X_filled[col] = pd.to_numeric(X_filled[col], errors='raise')
+                except (ValueError, TypeError) as e:
+                    raise TypeError(
+                        f"Column '{col}' contains non-numeric data and cannot be converted. "
+                        f"Sample values: {X_filled[col].dropna().unique()[:5].tolist()}\n"
+                        f"Please check your feature list in the config and ensure the dataset was "
+                        f"regenerated with boolean-to-int conversion from 02_feature_assmebly.py"
+                    ) from e
+
+        return X_filled
     else:
         raise ValueError(f"Unknown missing value strategy: {missing_strategy}")
 
@@ -144,6 +183,13 @@ def train_xgboost_approach1(splits, config, feature_names):
     y_train = splits['train']['target']
     X_val = apply_missing_value_handling(splits['val']['features'], config, 'xgboost')
     y_val = splits['val']['target']
+
+    # Shuffle training data for better learning
+    print("Shuffling training data...")
+    np.random.seed(config['random_seeds']['xgboost'])
+    shuffle_idx = np.random.permutation(len(X_train))
+    X_train = X_train.iloc[shuffle_idx].reset_index(drop=True)
+    y_train = y_train.iloc[shuffle_idx].reset_index(drop=True)
 
     # Calculate class weights if enabled
     params = config['xgboost_params'].copy()
@@ -175,6 +221,202 @@ def train_xgboost_approach1(splits, config, feature_names):
 
     print(f"Best iteration: {model.best_iteration}")
     return model, evals_result
+
+
+def extract_xgboost_feature_importance(model, feature_names):
+    """
+    Extract feature importance from XGBoost model
+
+    Returns dict with 3 importance types:
+    - weight: number of times feature is used in splits
+    - gain: average gain when feature is used
+    - cover: average coverage when feature is used
+    """
+    print("Extracting XGBoost feature importance...")
+
+    importance_types = ['weight', 'gain', 'cover']
+    importance_dict = {}
+
+    for imp_type in importance_types:
+        # Get importance scores from model
+        scores = model.get_score(importance_type=imp_type)
+
+        # Map feature indices to feature names and create sorted list
+        importance_list = []
+        for fname, score in scores.items():
+            # XGBoost may use actual feature names or generic 'f0', 'f1' format
+            if fname in feature_names:
+                # XGBoost is using actual feature names
+                feature_name = fname
+            else:
+                # XGBoost is using generic 'f0', 'f1' format
+                feature_idx = int(fname[1:])
+                feature_name = feature_names[feature_idx]
+
+            importance_list.append({
+                'feature': feature_name,
+                'importance': float(score)
+            })
+
+        # Sort by importance descending
+        importance_list.sort(key=lambda x: x['importance'], reverse=True)
+        importance_dict[imp_type] = importance_list
+
+    print(f"✅ Extracted importance for {len(importance_dict['weight'])} features")
+    return importance_dict
+
+
+def calculate_permutation_importance(model, X, y, config, feature_names, n_repeats=5):
+    """
+    Calculate permutation importance for Neural Network model
+
+    Measures AUC drop when each feature is randomly shuffled
+    """
+    print("Calculating permutation importance for Neural Network...")
+    print(f"Using {n_repeats} repeats per feature...")
+
+    # Get baseline performance
+    model.eval()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+
+    X_processed = apply_missing_value_handling(X, config, 'nn')
+    X_tensor = torch.FloatTensor(X_processed.values).to(device)
+    y_true = y.values
+
+    with torch.no_grad():
+        baseline_preds = model(X_tensor).cpu().numpy().flatten()
+    baseline_auc = roc_auc_score(y_true, baseline_preds)
+
+    print(f"Baseline AUC: {baseline_auc:.4f}")
+
+    # Calculate importance for each feature
+    importances = []
+
+    for i, feature_name in enumerate(feature_names):
+        feature_drops = []
+
+        for _ in range(n_repeats):
+            # Create a copy and shuffle the feature
+            X_permuted = X_processed.copy()
+            X_permuted.iloc[:, i] = np.random.permutation(X_permuted.iloc[:, i].values)
+
+            # Get predictions with permuted feature
+            X_perm_tensor = torch.FloatTensor(X_permuted.values).to(device)
+            with torch.no_grad():
+                perm_preds = model(X_perm_tensor).cpu().numpy().flatten()
+
+            # Calculate AUC drop
+            perm_auc = roc_auc_score(y_true, perm_preds)
+            feature_drops.append(baseline_auc - perm_auc)
+
+        # Average importance across repeats
+        mean_importance = np.mean(feature_drops)
+        std_importance = np.std(feature_drops)
+
+        importances.append({
+            'feature': feature_name,
+            'importance': float(mean_importance),
+            'importance_std': float(std_importance)
+        })
+
+        if (i + 1) % 10 == 0:
+            print(f"Processed {i + 1}/{len(feature_names)} features...")
+
+    # Sort by importance descending
+    importances.sort(key=lambda x: x['importance'], reverse=True)
+
+    print(f"✅ Calculated permutation importance for {len(importances)} features")
+    return importances
+
+
+def save_feature_importance(importance_data, model_type, config):
+    """
+    Save feature importance to JSON file
+    """
+    # Get output directory
+    script_dir = os.path.dirname(os.path.dirname(__file__))
+    project_root = os.path.dirname(script_dir)
+    results_dir = os.path.join(project_root, config['output_paths']['results_dir'])
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Save to JSON
+    output_path = os.path.join(results_dir, f'{model_type}_feature_importance.json')
+    with open(output_path, 'w') as f:
+        json.dump(importance_data, f, indent=2)
+
+    print(f"✅ Feature importance saved to: {output_path}")
+    return output_path
+
+
+def plot_feature_importance(importance_data, model_type, config, top_n=20):
+    """
+    Create horizontal bar plot of top N features
+
+    For XGBoost: creates subplot for each importance type
+    For NN: creates single plot
+    """
+    print(f"Creating feature importance plot (top {top_n})...")
+
+    # Get output directory
+    script_dir = os.path.dirname(os.path.dirname(__file__))
+    project_root = os.path.dirname(script_dir)
+    plots_dir = os.path.join(project_root, config['output_paths']['plots_dir'])
+    os.makedirs(plots_dir, exist_ok=True)
+
+    if model_type == 'xgboost':
+        # XGBoost has 3 importance types
+        fig, axes = plt.subplots(1, 3, figsize=(18, 8))
+
+        for idx, (imp_type, ax) in enumerate(zip(['weight', 'gain', 'cover'], axes)):
+            # Get top N features for this importance type
+            top_features = importance_data[imp_type][:top_n]
+
+            # Reverse order for plotting (highest at top)
+            features = [x['feature'] for x in reversed(top_features)]
+            scores = [x['importance'] for x in reversed(top_features)]
+
+            # Create horizontal bar plot
+            y_pos = np.arange(len(features))
+            ax.barh(y_pos, scores, color='steelblue')
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(features, fontsize=9)
+            ax.set_xlabel('Importance Score', fontsize=10)
+            ax.set_title(f'XGBoost Feature Importance ({imp_type.capitalize()})', fontsize=12, fontweight='bold')
+            ax.grid(axis='x', alpha=0.3)
+
+        plt.tight_layout()
+
+    else:  # Neural Network
+        # NN has single importance list
+        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+
+        # Get top N features
+        top_features = importance_data[:top_n]
+
+        # Reverse order for plotting (highest at top)
+        features = [x['feature'] for x in reversed(top_features)]
+        scores = [x['importance'] for x in reversed(top_features)]
+        errors = [x['importance_std'] for x in reversed(top_features)]
+
+        # Create horizontal bar plot with error bars
+        y_pos = np.arange(len(features))
+        ax.barh(y_pos, scores, xerr=errors, color='coral', capsize=3)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(features, fontsize=10)
+        ax.set_xlabel('Importance (AUC Drop)', fontsize=11)
+        ax.set_title(f'Neural Network Feature Importance (Permutation)', fontsize=13, fontweight='bold')
+        ax.grid(axis='x', alpha=0.3)
+
+        plt.tight_layout()
+
+    # Save plot
+    output_path = os.path.join(plots_dir, f'{model_type}_importance_top{top_n}.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"✅ Feature importance plot saved to: {output_path}")
+    return output_path
 
 
 def train_nn_approach1(splits, config, feature_names):

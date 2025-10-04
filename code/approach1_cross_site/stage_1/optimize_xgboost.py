@@ -78,6 +78,12 @@ def objective(trial, splits, feature_cols, config):
         X_val = apply_missing_value_handling(splits['val']['features'], config, 'xgboost')
         y_val = splits['val']['target'].values
 
+        # Shuffle training data for better learning
+        np.random.seed(42)
+        shuffle_idx = np.random.permutation(len(X_train))
+        X_train = X_train.iloc[shuffle_idx].reset_index(drop=True)
+        y_train = y_train[shuffle_idx]
+
         # Train model
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dval = xgb.DMatrix(X_val, label=y_val)
@@ -167,6 +173,12 @@ def main():
     y_train = splits['train']['target'].values
     X_val = apply_missing_value_handling(splits['val']['features'], config, 'xgboost')
     y_val = splits['val']['target'].values
+
+    # Shuffle training data for better learning
+    np.random.seed(42)
+    shuffle_idx = np.random.permutation(len(X_train))
+    X_train = X_train.iloc[shuffle_idx].reset_index(drop=True)
+    y_train = y_train[shuffle_idx]
 
     dtrain = xgb.DMatrix(X_train, label=y_train)
     dval = xgb.DMatrix(X_val, label=y_val)

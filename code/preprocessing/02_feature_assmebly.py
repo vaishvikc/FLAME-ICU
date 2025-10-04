@@ -144,75 +144,6 @@ def _(os, output_dir, pd):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Initialize ClifOrchestrator and Load Tables""")
-    return
-
-
-@app.cell
-def _(ClifOrchestrator, cohort_ids):
-    # Initialize ClifOrchestrator using config file
-    clif = ClifOrchestrator(config_path='clif_config.json')
-
-    # Load required tables for feature engineering with cohort ID filtering
-    print(f"Loading required tables with filtering for {len(cohort_ids)} cohort hospitalizations...")
-
-    # Define columns needed for each table to optimize memory usage
-    columns_to_load = {
-        'vitals': ['hospitalization_id', 'recorded_dttm', 'vital_category', 'vital_value'],
-        'labs': ['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value', 'lab_value_numeric'],
-        'respiratory_support': None,  # Load all columns
-        'medication_admin_continuous': None,  # Load all columns
-        'patient_assessments': None
-    }
-
-    tables_to_load = ['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous', 'patient_assessments']
-    for _table_name in tables_to_load:
-        table_columns = columns_to_load.get(_table_name)
-        print(f"Loading {_table_name} table with cohort ID filters and {len(table_columns) if table_columns else 'all'} columns...")
-        clif.load_table(
-            _table_name,
-            filters={'hospitalization_id': cohort_ids},
-            columns=table_columns
-        )
-
-    # Load hospitalization table to get admission_dttm for temporal split
-    print("Loading hospitalization table with cohort ID filters for temporal split...")
-    clif.load_table(
-        'hospitalization',
-        filters={'hospitalization_id': cohort_ids}
-    )
-
-    print("✅ ClifOrchestrator initialized and tables loaded successfully with cohort filtering")
-    return (clif,)
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""## Apply Outlier Handling""")
-    return
-
-
-@app.cell
-def _(apply_outlier_handling, clif):
-    # Apply outlier handling to all loaded tables using clifpy
-    print("Applying outlier handling to loaded tables...")
-
-    tables_for_outlier_handling = ['vitals', 'labs', 'respiratory_support', 'patient_assessments']
-
-    for _table_name in tables_for_outlier_handling:
-        table_obj = getattr(clif, _table_name)
-        if table_obj is not None:
-            print(f"\nProcessing {_table_name} table:")
-            apply_outlier_handling(table_obj)
-        else:
-            print(f"Warning: {_table_name} table not loaded")
-
-    print("\n✅ Outlier handling completed for all tables")
-    return
-
-
-@app.cell
-def _(mo):
     mo.md(r"""## Feature Selection Configuration""")
     return
 
@@ -250,6 +181,103 @@ def _(cohort_ids):
     for table, categories in category_filters.items():
         print(f"  {table}: {len(categories)} categories")
     return (category_filters,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Initialize ClifOrchestrator and Load Tables""")
+    return
+
+
+@app.cell
+def _(ClifOrchestrator, category_filters, cohort_ids):
+    # Initialize ClifOrchestrator using config file
+    clif = ClifOrchestrator(config_path='clif_config.json')
+
+    # Load required tables with optimized filtering (hospitalization_id + category filtering)
+    print(f"Loading required tables with filtering for {len(cohort_ids)} cohort hospitalizations...")
+    print("Applying category-level filtering to reduce memory usage...")
+
+    # Define columns and category filters for each table
+    table_config = {
+        'vitals': {
+            'columns': ['hospitalization_id', 'recorded_dttm', 'vital_category', 'vital_value'],
+            'category_filter': ('vital_category', category_filters['vitals'])
+        },
+        'labs': {
+            'columns': ['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value', 'lab_value_numeric'],
+            'category_filter': ('lab_category', category_filters['labs'])
+        },
+        'respiratory_support': {
+            'columns': None,  # Load all columns
+            'category_filter': None  # No category filtering (uses column-level filtering instead)
+        },
+        'medication_admin_continuous': {
+            'columns': None,  # Load all columns
+            'category_filter': ('med_category', category_filters['medication_admin_continuous'])
+        },
+        'patient_assessments': {
+            'columns': None,  # Load all columns
+            'category_filter': ('assessment_category', category_filters['patient_assessments'])
+        }
+    }
+
+    tables_to_load = ['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous', 'patient_assessments']
+    for _table_name in tables_to_load:
+        tbl_config = table_config.get(_table_name, {})
+        table_columns = tbl_config.get('columns')
+
+        # Build filters dict with hospitalization_id and category filtering
+        filters_dict = {'hospitalization_id': cohort_ids}
+
+        # Add category filter if defined
+        if tbl_config.get('category_filter'):
+            category_col, category_values = tbl_config['category_filter']
+            filters_dict[category_col] = category_values
+            print(f"Loading {_table_name} table: {len(cohort_ids)} hospitalizations × {len(category_values)} categories = filtered rows only...")
+        else:
+            print(f"Loading {_table_name} table: {len(cohort_ids)} hospitalizations, {len(table_columns) if table_columns else 'all'} columns...")
+
+        clif.load_table(
+            _table_name,
+            filters=filters_dict,
+            columns=table_columns
+        )
+
+    # Load hospitalization table to get admission_dttm for temporal split
+    print("Loading hospitalization table with cohort ID filters for temporal split...")
+    clif.load_table(
+        'hospitalization',
+        filters={'hospitalization_id': cohort_ids}
+    )
+
+    print("✅ ClifOrchestrator initialized and tables loaded successfully with cohort filtering")
+    return (clif,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Apply Outlier Handling""")
+    return
+
+
+@app.cell
+def _(apply_outlier_handling, clif):
+    # Apply outlier handling to all loaded tables using clifpy
+    print("Applying outlier handling to loaded tables...")
+
+    tables_for_outlier_handling = ['vitals', 'labs', 'respiratory_support', 'patient_assessments']
+
+    for _table_name in tables_for_outlier_handling:
+        table_obj = getattr(clif, _table_name)
+        if table_obj is not None:
+            print(f"\nProcessing {_table_name} table:")
+            apply_outlier_handling(table_obj)
+        else:
+            print(f"Warning: {_table_name} table not loaded")
+
+    print("\n✅ Outlier handling completed for all tables")
+    return
 
 
 @app.cell
