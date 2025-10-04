@@ -162,7 +162,7 @@ def _(ClifOrchestrator, cohort_ids):
         'labs': ['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value', 'lab_value_numeric'],
         'respiratory_support': None,  # Load all columns
         'medication_admin_continuous': None,  # Load all columns
-        'patient_assessments': ['hospitalization_id', 'recorded_dttm', 'assessment_category', 'numerical_value']
+        'patient_assessments': None
     }
 
     tables_to_load = ['vitals', 'labs', 'respiratory_support', 'medication_admin_continuous', 'patient_assessments']
@@ -230,7 +230,7 @@ def _(cohort_ids):
             'heart_rate', 'map', 'sbp', 'respiratory_rate', 'spo2', 'temp_c'
         ],
         'labs': [
-            "albumin", "alt", "ast", "bicarbonate", "bun", "chloride", "creatinine",
+            "albumin", "alt", "ast", "bicarbonate", "bilirubin_total", "bun", "chloride", "creatinine",
             "inr", "lactate", "platelet_count", "po2_arterial", "potassium", "pt", "ptt",
             "sodium", "wbc"
         ],
@@ -309,7 +309,7 @@ def _(wide_df):
 
     # Max aggregations (worst values in 24hr)
     max_features = [
-        'lactate', 'bun', 'creatinine', 'ast', 'alt', 'inr', 'ptt', 'pt',
+        'lactate', 'bun', 'creatinine', 'ast', 'alt', 'bilirubin_total', 'inr', 'ptt', 'pt',
         'fio2_set', 'peep_set', 'respiratory_rate', 'heart_rate', 'temp_c',
         'sodium', 'potassium', 'wbc', 'chloride', 'bicarbonate'
     ]
@@ -319,7 +319,7 @@ def _(wide_df):
 
     # Min aggregations (worst values in 24hr)
     min_features = [
-        'platelet_count', 'po2_arterial', 'spo2', 'sbp', 'albumin',
+        'platelet_count', 'po2_arterial', 'spo2', 'sbp', 'map', 'albumin',
         'sodium', 'potassium', 'wbc', 'temp_c', 'heart_rate'
     ]
     for feat in min_features:
@@ -327,7 +327,7 @@ def _(wide_df):
             agg_config[feat].append((f'{feat}_min', 'min'))
 
     # Median aggregations
-    median_features = ['respiratory_rate', 'fio2_set']
+    median_features = ['respiratory_rate', 'fio2_set', 'bilirubin_total', 'map']
     for feat in median_features:
         if feat in wide_df.columns:
             agg_config[feat].append((f'{feat}_median', 'median'))
@@ -361,7 +361,6 @@ def _(wide_df):
     print(f"Event-wide shape: {wide_df.shape}")
     print(f"Aggregated shape: {aggregated_df.shape}")
     print(f"Unique hospitalizations: {aggregated_df['hospitalization_id'].nunique()}")
-
     return (aggregated_df,)
 
 
@@ -449,7 +448,6 @@ def _(aggregated_df, pd, wide_df):
         print(f"Vasopressor count distribution: {aggregated_with_derived_features['vasopressor_count'].value_counts().sort_index().to_dict()}")
     else:
         print("⚠️ No vasopressor columns found in wide dataset")
-
     return (aggregated_with_derived_features,)
 
 
@@ -493,7 +491,6 @@ def _(aggregated_with_derived_features, cohort_df, pd):
     print(aggregated_with_demographics['ethnicity_category'].value_counts())
     print("\nLanguage distribution:")
     print(aggregated_with_demographics['language_category'].value_counts())
-
     return (aggregated_with_demographics,)
 
 
@@ -519,7 +516,6 @@ def _(aggregated_with_demographics):
     print(f"isfemale distribution: {aggregated_with_sex_binary['isfemale'].value_counts().to_dict()}")
     print(f"  Female (1): {(aggregated_with_sex_binary['isfemale'] == 1).sum()}")
     print(f"  Not Female (0): {(aggregated_with_sex_binary['isfemale'] == 0).sum()}")
-
     return (aggregated_with_sex_binary,)
 
 
@@ -594,21 +590,21 @@ def _(mo):
 
 @app.cell
 def _(aggregated_final, pd):
-    # Create age bins: <40, 40-64, 65-79, ≥80
+    # Create age bins: lt40, 40_64, 65_79, ge80 (XGBoost-compatible names)
     print("Creating age bins...")
 
-    # Create age bins
+    # Create age bins (using XGBoost-compatible names)
     def create_age_bin(age):
         if pd.isna(age):
             return None
         elif age < 40:
-            return '<40'
+            return 'lt40'
         elif age < 65:
-            return '40-64'
+            return '40_64'
         elif age < 80:
-            return '65-79'
+            return '65_79'
         else:
-            return '>=80'
+            return 'ge80'
 
     aggregated_with_age_bins = aggregated_final.copy()
     aggregated_with_age_bins['age_bin'] = aggregated_with_age_bins['age'].apply(create_age_bin)
@@ -620,7 +616,6 @@ def _(aggregated_final, pd):
     print("✅ Age bins created and one-hot encoded")
     print(f"Age distribution: {aggregated_with_age_bins['age_bin'].value_counts().to_dict()}")
     print(f"Age bin columns: {[col for col in aggregated_with_age_bins.columns if col.startswith('age_')]}")
-
     return (aggregated_with_age_bins,)
 
 
@@ -667,8 +662,54 @@ def _(aggregated_with_age_bins):
 
     print("\n✅ Categorical columns standardized to lowercase")
     print(f"Final dataset shape: {aggregated_standardized.shape}")
-
     return (aggregated_standardized,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""## Ensure Correct Data Types for Multi-Site Compatibility""")
+    return
+
+
+@app.cell
+def _(aggregated_standardized):
+    # Ensure all feature columns have compatible data types for PyTorch/XGBoost
+    print("Ensuring correct data types for multi-site compatibility...")
+
+    aggregated_typed = aggregated_standardized.copy()
+
+    # Convert boolean columns to int (important for PyTorch compatibility)
+    bool_cols = aggregated_typed.select_dtypes(include=['bool']).columns.tolist()
+    if bool_cols:
+        print(f"Converting {len(bool_cols)} boolean columns to int: {bool_cols}")
+        aggregated_typed[bool_cols] = aggregated_typed[bool_cols].astype(int)
+
+    # Convert nullable Int32/Int64 to regular int64 (important for SOFA scores and PyTorch)
+    nullable_int_cols = aggregated_typed.select_dtypes(include=['Int32', 'Int64']).columns.tolist()
+    if nullable_int_cols:
+        print(f"Converting {len(nullable_int_cols)} nullable integer columns to int64: {nullable_int_cols}")
+        # First convert to Int64 to ensure consistent nullable type, then to regular int64
+        for nullable_col in nullable_int_cols:
+            aggregated_typed[nullable_col] = aggregated_typed[nullable_col].astype('Int64').astype('int64')
+
+    # Verify no object columns remain (except identifiers and excluded columns)
+    object_cols = aggregated_typed.select_dtypes(include=['object']).columns.tolist()
+    expected_object_cols = ['hospitalization_id', 'sex_category', 'ethnicity_category',
+                            'race_category', 'language_category', 'row_type',
+                            'split_type', 'age_bin']
+    unexpected_object_cols = [col for col in object_cols if col not in expected_object_cols]
+
+    if unexpected_object_cols:
+        print(f"⚠️  Warning: Unexpected object columns found: {unexpected_object_cols}")
+
+    # Print dtype summary
+    print("\n=== Data Type Summary ===")
+    dtype_counts = aggregated_typed.dtypes.value_counts()
+    for dtype, dtype_count in dtype_counts.items():
+        print(f"  {dtype}: {dtype_count} columns")
+
+    print("\n✅ Data types verified and corrected")
+    return (aggregated_typed,)
 
 
 @app.cell
@@ -678,38 +719,38 @@ def _(mo):
 
 
 @app.cell
-def _(aggregated_standardized, get_output_path, os, pd):
+def _(aggregated_typed, get_output_path, os):
     # Save final aggregated dataset (one row per hospitalization)
     print("Saving final aggregated dataset...")
 
     # Save to protected_outputs/preprocessing/
     output_path = get_output_path('preprocessing', 'aggregated_features_24hr.parquet')
-    aggregated_standardized.to_parquet(output_path, index=False)
+    aggregated_typed.to_parquet(output_path, index=False)
 
     print(f"✅ Aggregated dataset saved to: {output_path}")
     print(f"File size: {os.path.getsize(output_path) / 1024**2:.1f} MB")
-    print(f"Shape: {aggregated_standardized.shape}")
+    print(f"Shape: {aggregated_typed.shape}")
 
     # Display final summary
     print("\n=== Final Dataset Summary ===")
-    print(f"Total records (hospitalizations): {len(aggregated_standardized):,}")
-    print(f"Unique hospitalizations: {aggregated_standardized['hospitalization_id'].nunique():,}")
-    print(f"Total features: {aggregated_standardized.shape[1]}")
+    print(f"Total records (hospitalizations): {len(aggregated_typed):,}")
+    print(f"Unique hospitalizations: {aggregated_typed['hospitalization_id'].nunique():,}")
+    print(f"Total features: {aggregated_typed.shape[1]}")
 
     # Show detailed temporal split
-    if 'row_type' in aggregated_standardized.columns:
+    if 'row_type' in aggregated_typed.columns:
         print("\n=== Temporal Split Details ===")
-        temporal_summary = aggregated_standardized.groupby('row_type').size().to_dict()
+        temporal_summary = aggregated_typed.groupby('row_type').size().to_dict()
 
         print("Hospitalizations by temporal split:")
-        for row_type, count in temporal_summary.items():
-            print(f"  {row_type}: {count:,} hospitalizations")
+        for row_type, split_count in temporal_summary.items():
+            print(f"  {row_type}: {split_count:,} hospitalizations")
 
         # Calculate and display prevalence percentages by temporal split
         print("\n=== Mortality Prevalence by Temporal Split ===")
 
         # Calculate prevalence by temporal split (disposition already in dataset)
-        prevalence_by_split = aggregated_standardized.groupby('row_type').agg({
+        prevalence_by_split = aggregated_typed.groupby('row_type').agg({
             'disposition': ['count', 'sum', 'mean']
         }).round(3)
         prevalence_by_split.columns = ['total_patients', 'deaths', 'mortality_prevalence']
@@ -722,19 +763,19 @@ def _(aggregated_standardized, get_output_path, os, pd):
     print("\n=== Dataset Structure ===")
 
     # Categorize columns
-    _agg_cols = [col for col in aggregated_standardized.columns if any(col.endswith(suf) for suf in ['_max', '_min', '_median', '_last'])]
-    _device_cols = [col for col in aggregated_standardized.columns if col.startswith('device_')]
-    _age_cols = [col for col in aggregated_standardized.columns if col.startswith('age_')]
+    _agg_cols = [col for col in aggregated_typed.columns if any(col.endswith(suf) for suf in ['_max', '_min', '_median', '_last'])]
+    _device_cols = [col for col in aggregated_typed.columns if col.startswith('device_')]
+    _age_cols = [col for col in aggregated_typed.columns if col.startswith('age_')]
     _demo_cols = ['sex_category', 'ethnicity_category', 'race_category', 'language_category']
     _meta_cols = ['hospitalization_id', 'row_type', 'split_type', 'hour_24_start_dttm', 'hour_24_end_dttm']
 
     print(f"Aggregated features ({len(_agg_cols)}): {_agg_cols[:10]}...")
     print(f"Device one-hot ({len(_device_cols)}): {_device_cols}")
     print(f"Age features ({len(_age_cols)}): {_age_cols}")
-    print(f"Demographics ({len([c for c in _demo_cols if c in aggregated_standardized.columns])}): {[c for c in _demo_cols if c in aggregated_standardized.columns]}")
-    print(f"Metadata ({len([c for c in _meta_cols if c in aggregated_standardized.columns])}): {[c for c in _meta_cols if c in aggregated_standardized.columns]}")
+    print(f"Demographics ({len([c for c in _demo_cols if c in aggregated_typed.columns])}): {[c for c in _demo_cols if c in aggregated_typed.columns]}")
+    print(f"Metadata ({len([c for c in _meta_cols if c in aggregated_typed.columns])}): {[c for c in _meta_cols if c in aggregated_typed.columns]}")
 
-    if 'vasopressor_count' in aggregated_standardized.columns:
+    if 'vasopressor_count' in aggregated_typed.columns:
         print("Derived: ['vasopressor_count', 'isfemale']")
 
     print("\n🎉 Feature extraction and aggregation completed successfully!")
@@ -749,7 +790,7 @@ def _(mo):
 
 
 @app.cell
-def _(aggregated_standardized, json, pd):
+def _(aggregated_typed, json):
     # Generate comprehensive statistics for research paper Table 1
     print("Generating comprehensive statistics for research paper reporting...")
 
@@ -807,96 +848,96 @@ def _(aggregated_standardized, json, pd):
 
     # 1. Cohort Information
     reporting_stats["cohort_info"] = {
-        "total_patients": int(len(aggregated_standardized)),
-        "unique_hospitalizations": int(aggregated_standardized['hospitalization_id'].nunique()),
+        "total_patients": int(len(aggregated_typed)),
+        "unique_hospitalizations": int(aggregated_typed['hospitalization_id'].nunique()),
         "temporal_splits": {
             str(split): int(count)
-            for split, count in aggregated_standardized['row_type'].value_counts().items()
+            for split, count in aggregated_typed['row_type'].value_counts().items()
         },
         "detailed_splits": {
             str(split): int(count)
-            for split, count in aggregated_standardized['split_type'].value_counts().items()
-        } if 'split_type' in aggregated_standardized.columns else {}
+            for split, count in aggregated_typed['split_type'].value_counts().items()
+        } if 'split_type' in aggregated_typed.columns else {}
     }
 
     # 2. Demographics
     reporting_stats["demographics"]["categorical"] = {
-        "sex_category": get_categorical_stats(aggregated_standardized['sex_category'], 'sex_category'),
-        "race_category": get_categorical_stats(aggregated_standardized['race_category'], 'race_category'),
-        "ethnicity_category": get_categorical_stats(aggregated_standardized['ethnicity_category'], 'ethnicity_category'),
-        "language_category": get_categorical_stats(aggregated_standardized['language_category'], 'language_category'),
-        "isfemale": get_categorical_stats(aggregated_standardized['isfemale'], 'isfemale')
+        "sex_category": get_categorical_stats(aggregated_typed['sex_category'], 'sex_category'),
+        "race_category": get_categorical_stats(aggregated_typed['race_category'], 'race_category'),
+        "ethnicity_category": get_categorical_stats(aggregated_typed['ethnicity_category'], 'ethnicity_category'),
+        "language_category": get_categorical_stats(aggregated_typed['language_category'], 'language_category'),
+        "isfemale": get_categorical_stats(aggregated_typed['isfemale'], 'isfemale')
     }
 
     # Age statistics
-    if 'age' in aggregated_standardized.columns:
+    if 'age' in aggregated_typed.columns:
         reporting_stats["demographics"]["continuous"] = {
-            "age": get_continuous_stats(aggregated_standardized['age'], 'age')
+            "age": get_continuous_stats(aggregated_typed['age'], 'age')
         }
         # Age bins
         reporting_stats["demographics"]["categorical"]["age_bin"] = get_categorical_stats(
-            aggregated_standardized['age_bin'], 'age_bin'
+            aggregated_typed['age_bin'], 'age_bin'
         )
 
     # 3. Clinical Severity (SOFA Scores)
     sofa_cols = ['sofa_total', 'sofa_resp', 'sofa_coag', 'sofa_liver', 'sofa_renal', 'sofa_cv_97', 'sofa_cns', 'p_f', 'p_f_imputed']
     reporting_stats["clinical_severity"]["sofa_scores"] = {
-        col: get_continuous_stats(aggregated_standardized[col], col)
-        for col in sofa_cols if col in aggregated_standardized.columns
+        col: get_continuous_stats(aggregated_typed[col], col)
+        for col in sofa_cols if col in aggregated_typed.columns
     }
 
     # 4. Vital Signs
-    vital_features = [col for col in aggregated_standardized.columns
+    vital_features = [col for col in aggregated_typed.columns
                      if any(col.startswith(v) for v in ['heart_rate', 'map', 'sbp', 'respiratory_rate', 'spo2', 'temp_c'])]
     reporting_stats["vitals"]["continuous"] = {
-        col: get_continuous_stats(aggregated_standardized[col], col)
+        col: get_continuous_stats(aggregated_typed[col], col)
         for col in vital_features
     }
 
     # 5. Laboratory Values
-    lab_features = [col for col in aggregated_standardized.columns
+    lab_features = [col for col in aggregated_typed.columns
                    if any(col.startswith(lab) for lab in ['albumin', 'alt', 'ast', 'bicarbonate', 'bun', 'chloride',
                                                            'creatinine', 'inr', 'lactate', 'platelet_count',
                                                            'po2_arterial', 'potassium', 'pt', 'ptt', 'sodium', 'wbc'])]
     reporting_stats["labs"]["continuous"] = {
-        col: get_continuous_stats(aggregated_standardized[col], col)
+        col: get_continuous_stats(aggregated_typed[col], col)
         for col in lab_features
     }
 
     # 6. Respiratory Support
-    respiratory_continuous = [col for col in aggregated_standardized.columns
+    respiratory_continuous = [col for col in aggregated_typed.columns
                              if any(col.startswith(r) for r in ['fio2_set', 'peep_set'])]
     reporting_stats["respiratory"]["continuous"] = {
-        col: get_continuous_stats(aggregated_standardized[col], col)
+        col: get_continuous_stats(aggregated_typed[col], col)
         for col in respiratory_continuous
     }
 
     # Device one-hot encoding
-    device_cols = [col for col in aggregated_standardized.columns if col.startswith('device_')]
+    device_cols = [col for col in aggregated_typed.columns if col.startswith('device_')]
     reporting_stats["respiratory"]["categorical"] = {
-        col: get_categorical_stats(aggregated_standardized[col], col)
+        col: get_categorical_stats(aggregated_typed[col], col)
         for col in device_cols
     }
 
     # 7. Medications
-    if 'vasopressor_count' in aggregated_standardized.columns:
+    if 'vasopressor_count' in aggregated_typed.columns:
         reporting_stats["medications"]["continuous"] = {
-            "vasopressor_count": get_continuous_stats(aggregated_standardized['vasopressor_count'], 'vasopressor_count')
+            "vasopressor_count": get_continuous_stats(aggregated_typed['vasopressor_count'], 'vasopressor_count')
         }
         # Also as categorical distribution
         reporting_stats["medications"]["categorical"] = {
-            "vasopressor_count": get_categorical_stats(aggregated_standardized['vasopressor_count'], 'vasopressor_count')
+            "vasopressor_count": get_categorical_stats(aggregated_typed['vasopressor_count'], 'vasopressor_count')
         }
 
     # 8. Outcomes
     reporting_stats["outcomes"] = {
-        "disposition": get_categorical_stats(aggregated_standardized['disposition'], 'disposition'),
+        "disposition": get_categorical_stats(aggregated_typed['disposition'], 'disposition'),
         "mortality_by_split": {}
     }
 
     # Mortality by temporal split
-    for split_type in aggregated_standardized['row_type'].unique():
-        split_data = aggregated_standardized[aggregated_standardized['row_type'] == split_type]
+    for split_type in aggregated_typed['row_type'].unique():
+        split_data = aggregated_typed[aggregated_typed['row_type'] == split_type]
         reporting_stats["outcomes"]["mortality_by_split"][str(split_type)] = {
             "total": int(len(split_data)),
             "deaths": int(split_data['disposition'].sum()),
@@ -906,7 +947,6 @@ def _(aggregated_standardized, json, pd):
 
     print(f"✅ Reporting statistics generated for {reporting_stats['site']}")
     print(f"Total variables: {sum(len(v.get('continuous', {})) + len(v.get('categorical', {})) for v in reporting_stats.values() if isinstance(v, dict))}")
-
     return (reporting_stats,)
 
 
