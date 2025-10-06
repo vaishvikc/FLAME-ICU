@@ -1,13 +1,7 @@
 {
-  "approach_name": "approach_2_transfer_learning",
+  "approach_name": "approach_3_independent_training",
   "stage": 1,
-  "description": "Approach 2: Transfer Learning - Fine-tune RUSH pre-trained models with local training data",
-
-  "transfer_learning": {
-    "base_models_path": "models_storage/approach_1/stage_1/",
-    "learning_rate_multiplier": 0.1,
-    "description": "Load pre-trained models from Approach 1 and fine-tune with local data"
-  },
+  "description": "Approach 3: Independent Site Training - Each site trains models from scratch using local data only",
 
   "data_config": {
     "consolidated_features_path": "protected_outputs/preprocessing/aggregated_features_24hr.parquet",
@@ -104,9 +98,9 @@
   },
 
   "output_paths": {
-    "models_dir": "models_storage/approach_2/stage_1/",
-    "results_dir": "share_to_box/approach_2_stage_1/",
-    "plots_dir": "share_to_box/approach_2_stage_1/plots/"
+    "models_dir": "models_storage/approach_3/stage_1/{site_name}/",
+    "results_dir": "share_to_box/approach_3_stage_1/{site_name}/",
+    "plots_dir": "share_to_box/approach_3_stage_1/{site_name}/plots/"
   },
 
   "random_seeds": {

@@ -34,4 +34,6 @@ dependencies = [
     "xgboost",
     "scikit-learn",
     "optuna>=4.5.0",
+    "watchdog>=6.0.0",
+    "ruff>=0.13.3",
 ]

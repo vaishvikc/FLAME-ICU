@@ -99,8 +99,8 @@ def _():
 @app.cell
 def _(ensure_dir, get_output_path, json):
     # Load configuration from clif_config.json
-    with open('clif_config.json', 'r') as f:
-        config = json.load(f)
+    with open('clif_config.json', 'r') as config_file:
+        config = json.load(config_file)
 
     print(f"Site: {config['site']}")
     print(f"Data path: {config['data_directory']}")
@@ -742,33 +742,116 @@ def _(aggregated_standardized):
 
 @app.cell
 def _(mo):
+    mo.md(r"""## Apply RobustScaler to Numeric Features""")
+    return
+
+
+@app.cell
+def _(aggregated_typed, get_output_path, os, pd):
+    # Apply RobustScaler to numeric features before saving
+    print("Applying RobustScaler to numeric features...")
+
+    # Import scaling library
+    from sklearn.preprocessing import RobustScaler
+    import pickle
+
+    # Identify columns to scale (continuous numeric features)
+    # Exclude: IDs, categorical, binary flags, datetime columns
+    exclude_from_scaling = [
+        'hospitalization_id', 'hour_24_start_dttm', 'hour_24_end_dttm',
+        'sex_category', 'ethnicity_category', 'race_category', 'language_category',
+        'row_type', 'split_type', 'age_bin',
+        # Binary device flags (already 0/1)
+        'device_imv', 'device_nippv', 'device_cpap', 'device_high_flow_nc',
+        'device_face_mask', 'device_trach_collar', 'device_nasal_cannula',
+        # Binary demographic flag
+        'isfemale',
+        # Disposition (target variable)
+        'disposition'
+    ]
+
+    # Get numeric columns to scale
+    numeric_cols = aggregated_typed.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    cols_to_scale = [col for col in numeric_cols if col not in exclude_from_scaling]
+
+    print(f"Total numeric columns: {len(numeric_cols)}")
+    print(f"Columns to scale: {len(cols_to_scale)}")
+    print(f"Sample columns to scale: {cols_to_scale[:10]}")
+
+    # Create a copy for scaled data
+    aggregated_scaled = aggregated_typed.copy()
+
+    # Fit RobustScaler on training data only
+    print("\nFitting RobustScaler on training data...")
+    train_mask = aggregated_typed['split_type'] == 'train'
+    train_data = aggregated_typed.loc[train_mask, cols_to_scale]
+
+    scaler = RobustScaler(
+        with_centering=True,
+        with_scaling=True,
+        quantile_range=(25.0, 75.0)  # Use IQR
+    )
+    scaler.fit(train_data)
+
+    print(f"Scaler fitted on {train_data.shape[0]} training samples")
+
+    # Transform all splits
+    print("Transforming all splits (train/val/test)...")
+    scaled_features = scaler.transform(aggregated_typed[cols_to_scale])
+    aggregated_scaled[cols_to_scale] = scaled_features
+
+    print("✅ Scaling completed")
+
+    # Verify scaling
+    print("\n=== Scaling Verification ===")
+    print("Before scaling (training data):")
+    print(train_data[cols_to_scale[:5]].describe().loc[['mean', 'std', '50%']])
+    print("\nAfter scaling (training data):")
+    scaled_train = aggregated_scaled.loc[train_mask, cols_to_scale[:5]]
+    print(scaled_train.describe().loc[['mean', 'std', '50%']])
+
+    # Save scaler for inference
+    scaler_path = get_output_path('preprocessing', 'robust_scaler.pkl')
+    scaler_dir = os.path.dirname(scaler_path)
+    os.makedirs(scaler_dir, exist_ok=True)
+    with open(scaler_path, 'wb') as scaler_file:
+        pickle.dump(scaler, scaler_file)
+
+    print(f"\n✅ RobustScaler saved to: {scaler_path}")
+    print(f"Scaler can be used for inference on new data")
+
+    return (aggregated_scaled, scaler)
+
+
+@app.cell
+def _(mo):
     mo.md(r"""## Save Final Aggregated Dataset""")
     return
 
 
 @app.cell
-def _(aggregated_typed, get_output_path, os):
-    # Save final aggregated dataset (one row per hospitalization)
-    print("Saving final aggregated dataset...")
+def _(aggregated_scaled, get_output_path, os):
+    # Save final aggregated dataset with scaled features (one row per hospitalization)
+    print("Saving final aggregated dataset with scaled features...")
 
     # Save to protected_outputs/preprocessing/
     output_path = get_output_path('preprocessing', 'aggregated_features_24hr.parquet')
-    aggregated_typed.to_parquet(output_path, index=False)
+    aggregated_scaled.to_parquet(output_path, index=False)
 
     print(f"✅ Aggregated dataset saved to: {output_path}")
     print(f"File size: {os.path.getsize(output_path) / 1024**2:.1f} MB")
-    print(f"Shape: {aggregated_typed.shape}")
+    print(f"Shape: {aggregated_scaled.shape}")
 
     # Display final summary
     print("\n=== Final Dataset Summary ===")
-    print(f"Total records (hospitalizations): {len(aggregated_typed):,}")
-    print(f"Unique hospitalizations: {aggregated_typed['hospitalization_id'].nunique():,}")
-    print(f"Total features: {aggregated_typed.shape[1]}")
+    print(f"Total records (hospitalizations): {len(aggregated_scaled):,}")
+    print(f"Unique hospitalizations: {aggregated_scaled['hospitalization_id'].nunique():,}")
+    print(f"Total features: {aggregated_scaled.shape[1]}")
 
     # Show detailed temporal split
-    if 'row_type' in aggregated_typed.columns:
+    if 'row_type' in aggregated_scaled.columns:
         print("\n=== Temporal Split Details ===")
-        temporal_summary = aggregated_typed.groupby('row_type').size().to_dict()
+        temporal_summary = aggregated_scaled.groupby('row_type').size().to_dict()
 
         print("Hospitalizations by temporal split:")
         for row_type, split_count in temporal_summary.items():
@@ -778,7 +861,7 @@ def _(aggregated_typed, get_output_path, os):
         print("\n=== Mortality Prevalence by Temporal Split ===")
 
         # Calculate prevalence by temporal split (disposition already in dataset)
-        prevalence_by_split = aggregated_typed.groupby('row_type').agg({
+        prevalence_by_split = aggregated_scaled.groupby('row_type').agg({
             'disposition': ['count', 'sum', 'mean']
         }).round(3)
         prevalence_by_split.columns = ['total_patients', 'deaths', 'mortality_prevalence']
@@ -791,23 +874,24 @@ def _(aggregated_typed, get_output_path, os):
     print("\n=== Dataset Structure ===")
 
     # Categorize columns
-    _agg_cols = [col for col in aggregated_typed.columns if any(col.endswith(suf) for suf in ['_max', '_min', '_median', '_last'])]
-    _device_cols = [col for col in aggregated_typed.columns if col.startswith('device_')]
-    _age_cols = [col for col in aggregated_typed.columns if col.startswith('age_')]
+    _agg_cols = [col for col in aggregated_scaled.columns if any(col.endswith(suf) for suf in ['_max', '_min', '_median', '_last'])]
+    _device_cols = [col for col in aggregated_scaled.columns if col.startswith('device_')]
+    _age_cols = [col for col in aggregated_scaled.columns if col.startswith('age_')]
     _demo_cols = ['sex_category', 'ethnicity_category', 'race_category', 'language_category']
     _meta_cols = ['hospitalization_id', 'row_type', 'split_type', 'hour_24_start_dttm', 'hour_24_end_dttm']
 
     print(f"Aggregated features ({len(_agg_cols)}): {_agg_cols[:10]}...")
     print(f"Device one-hot ({len(_device_cols)}): {_device_cols}")
     print(f"Age features ({len(_age_cols)}): {_age_cols}")
-    print(f"Demographics ({len([c for c in _demo_cols if c in aggregated_typed.columns])}): {[c for c in _demo_cols if c in aggregated_typed.columns]}")
-    print(f"Metadata ({len([c for c in _meta_cols if c in aggregated_typed.columns])}): {[c for c in _meta_cols if c in aggregated_typed.columns]}")
+    print(f"Demographics ({len([c for c in _demo_cols if c in aggregated_scaled.columns])}): {[c for c in _demo_cols if c in aggregated_scaled.columns]}")
+    print(f"Metadata ({len([c for c in _meta_cols if c in aggregated_scaled.columns])}): {[c for c in _meta_cols if c in aggregated_scaled.columns]}")
 
-    if 'vasopressor_count' in aggregated_typed.columns:
+    if 'vasopressor_count' in aggregated_scaled.columns:
         print("Derived: ['vasopressor_count', 'isfemale']")
 
     print("\n🎉 Feature extraction and aggregation completed successfully!")
     print("Dataset ready for modeling with one row per hospitalization.")
+    print("Note: Numeric features have been scaled using RobustScaler fitted on training data.")
     return
 
 
@@ -818,13 +902,14 @@ def _(mo):
 
 
 @app.cell
-def _(aggregated_typed, json):
+def _(aggregated_scaled, json):
     # Generate comprehensive statistics for research paper Table 1
+    # Note: Statistics are calculated on scaled data, but this is appropriate for reporting
     print("Generating comprehensive statistics for research paper reporting...")
 
     # Load site config for reporting
-    with open('clif_config.json', 'r') as config_file:
-        _report_config = json.load(config_file)
+    with open('clif_config.json', 'r') as report_config_file:
+        _report_config = json.load(report_config_file)
 
     # Initialize reporting structure
     reporting_stats = {
@@ -876,96 +961,96 @@ def _(aggregated_typed, json):
 
     # 1. Cohort Information
     reporting_stats["cohort_info"] = {
-        "total_patients": int(len(aggregated_typed)),
-        "unique_hospitalizations": int(aggregated_typed['hospitalization_id'].nunique()),
+        "total_patients": int(len(aggregated_scaled)),
+        "unique_hospitalizations": int(aggregated_scaled['hospitalization_id'].nunique()),
         "temporal_splits": {
             str(split): int(count)
-            for split, count in aggregated_typed['row_type'].value_counts().items()
+            for split, count in aggregated_scaled['row_type'].value_counts().items()
         },
         "detailed_splits": {
             str(split): int(count)
-            for split, count in aggregated_typed['split_type'].value_counts().items()
-        } if 'split_type' in aggregated_typed.columns else {}
+            for split, count in aggregated_scaled['split_type'].value_counts().items()
+        } if 'split_type' in aggregated_scaled.columns else {}
     }
 
     # 2. Demographics
     reporting_stats["demographics"]["categorical"] = {
-        "sex_category": get_categorical_stats(aggregated_typed['sex_category'], 'sex_category'),
-        "race_category": get_categorical_stats(aggregated_typed['race_category'], 'race_category'),
-        "ethnicity_category": get_categorical_stats(aggregated_typed['ethnicity_category'], 'ethnicity_category'),
-        "language_category": get_categorical_stats(aggregated_typed['language_category'], 'language_category'),
-        "isfemale": get_categorical_stats(aggregated_typed['isfemale'], 'isfemale')
+        "sex_category": get_categorical_stats(aggregated_scaled['sex_category'], 'sex_category'),
+        "race_category": get_categorical_stats(aggregated_scaled['race_category'], 'race_category'),
+        "ethnicity_category": get_categorical_stats(aggregated_scaled['ethnicity_category'], 'ethnicity_category'),
+        "language_category": get_categorical_stats(aggregated_scaled['language_category'], 'language_category'),
+        "isfemale": get_categorical_stats(aggregated_scaled['isfemale'], 'isfemale')
     }
 
     # Age statistics
-    if 'age' in aggregated_typed.columns:
+    if 'age' in aggregated_scaled.columns:
         reporting_stats["demographics"]["continuous"] = {
-            "age": get_continuous_stats(aggregated_typed['age'], 'age')
+            "age": get_continuous_stats(aggregated_scaled['age'], 'age')
         }
         # Age bins
         reporting_stats["demographics"]["categorical"]["age_bin"] = get_categorical_stats(
-            aggregated_typed['age_bin'], 'age_bin'
+            aggregated_scaled['age_bin'], 'age_bin'
         )
 
     # 3. Clinical Severity (SOFA Scores)
     sofa_cols = ['sofa_total', 'sofa_resp', 'sofa_coag', 'sofa_liver', 'sofa_renal', 'sofa_cv_97', 'sofa_cns', 'p_f', 'p_f_imputed']
     reporting_stats["clinical_severity"]["sofa_scores"] = {
-        col: get_continuous_stats(aggregated_typed[col], col)
-        for col in sofa_cols if col in aggregated_typed.columns
+        col: get_continuous_stats(aggregated_scaled[col], col)
+        for col in sofa_cols if col in aggregated_scaled.columns
     }
 
     # 4. Vital Signs
-    vital_features = [col for col in aggregated_typed.columns
+    vital_features = [col for col in aggregated_scaled.columns
                      if any(col.startswith(v) for v in ['heart_rate', 'map', 'sbp', 'respiratory_rate', 'spo2', 'temp_c'])]
     reporting_stats["vitals"]["continuous"] = {
-        col: get_continuous_stats(aggregated_typed[col], col)
+        col: get_continuous_stats(aggregated_scaled[col], col)
         for col in vital_features
     }
 
     # 5. Laboratory Values
-    lab_features = [col for col in aggregated_typed.columns
+    lab_features = [col for col in aggregated_scaled.columns
                    if any(col.startswith(lab) for lab in ['albumin', 'alt', 'ast', 'bicarbonate', 'bun', 'chloride',
                                                            'creatinine', 'inr', 'lactate', 'platelet_count',
                                                            'po2_arterial', 'potassium', 'pt', 'ptt', 'sodium', 'wbc'])]
     reporting_stats["labs"]["continuous"] = {
-        col: get_continuous_stats(aggregated_typed[col], col)
+        col: get_continuous_stats(aggregated_scaled[col], col)
         for col in lab_features
     }
 
     # 6. Respiratory Support
-    respiratory_continuous = [col for col in aggregated_typed.columns
+    respiratory_continuous = [col for col in aggregated_scaled.columns
                              if any(col.startswith(r) for r in ['fio2_set', 'peep_set'])]
     reporting_stats["respiratory"]["continuous"] = {
-        col: get_continuous_stats(aggregated_typed[col], col)
+        col: get_continuous_stats(aggregated_scaled[col], col)
         for col in respiratory_continuous
     }
 
     # Device one-hot encoding
-    device_cols = [col for col in aggregated_typed.columns if col.startswith('device_')]
+    device_cols = [col for col in aggregated_scaled.columns if col.startswith('device_')]
     reporting_stats["respiratory"]["categorical"] = {
-        col: get_categorical_stats(aggregated_typed[col], col)
+        col: get_categorical_stats(aggregated_scaled[col], col)
         for col in device_cols
     }
 
     # 7. Medications
-    if 'vasopressor_count' in aggregated_typed.columns:
+    if 'vasopressor_count' in aggregated_scaled.columns:
         reporting_stats["medications"]["continuous"] = {
-            "vasopressor_count": get_continuous_stats(aggregated_typed['vasopressor_count'], 'vasopressor_count')
+            "vasopressor_count": get_continuous_stats(aggregated_scaled['vasopressor_count'], 'vasopressor_count')
         }
         # Also as categorical distribution
         reporting_stats["medications"]["categorical"] = {
-            "vasopressor_count": get_categorical_stats(aggregated_typed['vasopressor_count'], 'vasopressor_count')
+            "vasopressor_count": get_categorical_stats(aggregated_scaled['vasopressor_count'], 'vasopressor_count')
         }
 
     # 8. Outcomes
     reporting_stats["outcomes"] = {
-        "disposition": get_categorical_stats(aggregated_typed['disposition'], 'disposition'),
+        "disposition": get_categorical_stats(aggregated_scaled['disposition'], 'disposition'),
         "mortality_by_split": {}
     }
 
     # Mortality by temporal split
-    for split_type in aggregated_typed['row_type'].unique():
-        split_data = aggregated_typed[aggregated_typed['row_type'] == split_type]
+    for split_type in aggregated_scaled['row_type'].unique():
+        split_data = aggregated_scaled[aggregated_scaled['row_type'] == split_type]
         reporting_stats["outcomes"]["mortality_by_split"][str(split_type)] = {
             "total": int(len(split_data)),
             "deaths": int(split_data['disposition'].sum()),

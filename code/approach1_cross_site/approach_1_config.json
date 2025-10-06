@@ -20,7 +20,7 @@
       "device_imv", "device_nippv", "device_cpap", "device_high_flow_nc",
       "device_face_mask", "device_trach_collar", "device_nasal_cannula",
       "vasopressor_count",
-      "sofa_total", "sofa_resp", "sofa_coag", "sofa_liver", "sofa_renal", "sofa_cv_97", "sofa_cns",
+      "sofa_resp", "sofa_coag", "sofa_liver", "sofa_renal", "sofa_cv_97", "sofa_cns",
       "p_f", "p_f_imputed",
       "age", "isfemale"
     ],
