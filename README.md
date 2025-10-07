@@ -63,7 +63,7 @@ uv sync
 # 3. Run preprocessing pipeline
 uv run marimo run code/preprocessing/01_cohort.py
 uv run marimo run code/preprocessing/02_feature_assmebly.py
-uv run marimo run code/preprocessing/03_hourly_qc.py
+uv run marimo run code/preprocessing/03_qc_heatmap.py
 ```
 
 ### Approach 1: Cross-Site Validation
