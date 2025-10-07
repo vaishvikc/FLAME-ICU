@@ -316,6 +316,13 @@ def _(category_filters, clif, cohort_df):
     print(f"Shape: {clif.wide_df.shape}")
     print(f"Hospitalizations: {wide_df['hospitalization_id'].nunique()}")
     print(f"Date range: {wide_df['event_time'].min()} to {wide_df['event_time'].max()}")
+
+    # Save wide dataset for QC analysis
+    wide_df_path = os.path.join(output_dir, 'wide_df_24hr.parquet')
+    wide_df.to_parquet(wide_df_path)
+    print(f"✅ Saved wide dataset for QC analysis: {wide_df_path}")
+    print(f"File size: {os.path.getsize(wide_df_path) / 1024**2:.1f} MB")
+
     return (wide_df,)
 
 

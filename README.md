@@ -1,75 +1,114 @@
 # FLAME-ICU
 Federated Learning Adaptable Mortality Estimator for the ICU
 
-## Environment Setup
+## Project Overview
 
-This project uses a Python virtual environment named `flameICU`. Follow the instructions below to set up your environment.
+FLAME-ICU implements a multi-site federated learning approach for ICU mortality prediction using CLIF-standardized data. The project coordinates 6-7 institutions with RUSH as the main site, developing both XGBoost and Neural Network models.
 
-### Prerequisites
+### Stage 1: Model Development (3 Approaches)
+1. **Cross-Site Validation** - Test RUSH-trained models across sites without local training
+2. **Transfer Learning** - Fine-tune RUSH pre-trained models with local site data
+3. **Independent Training** - Each site trains models from scratch
 
-- Python 3.8 or higher
+### Stage 2: Comprehensive Testing
+- **Phase 1**: Cross-site testing of all Stage 1 models
+- **Phase 2**: Leave-one-out ensemble construction with accuracy weighting
 
-### Setting up the Virtual Environment
+### Data Split
+- **Training**: 2018-2022 admissions
+- **Validation**: 2023 admissions
+- **Testing**: 2024 admissions
 
-#### macOS/Linux
+### Deliverables
+Models are shared via BOX for cross-site evaluation and ensemble construction, with final deployment recommendations based on performance metrics.
 
-1. Open Terminal
-2. Navigate to the project directory:
-   ```bash
-   cd /path/to/FLAME-ICU
-   ```
-3. Create the virtual environment:
-   ```bash
-   python3 -m venv flameICU
-   ```
-4. Activate the virtual environment:
-   ```bash
-   source flameICU/bin/activate
-   ```
-5. Install required packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
-6. To deactivate the environment when done:
-   ```bash
-   deactivate
-   ```
+## Setup
 
-#### Windows
+### 1. Configure Site
+Update `clif_config.json`:
+```json
+{
+    "site": "your_site_name",
+    "data_directory": "/path/to/your/clif/data",
+    "filetype": "parquet",
+    "timezone": "US/Central"
+}
+```
 
-1. Open Command Prompt or PowerShell
-2. Navigate to the project directory:
-   ```cmd
-   cd C:\path\to\FLAME-ICU
-   ```
-3. Create the virtual environment:
-   ```cmd
-   python -m venv flameICU
-   ```
-   Note: If `python` doesn't work, try `py` or `python3`
-4. Activate the virtual environment:
-   - In Command Prompt:
-     ```cmd
-     flameICU\Scripts\activate.bat
-     ```
-   - In PowerShell:
-     ```powershell
-     .\flameICU\Scripts\Activate.ps1
-     ```
-5. Install required packages:
-   ```cmd
-   pip install -r requirements.txt
-   ```
-6. To deactivate the environment when done:
-   ```cmd
-   deactivate
-   ```
+### 2. Install Dependencies
+```bash
+uv sync
+```
 
-### Important Notes
+## Required CLIF Tables
 
-- Always activate the virtual environment before working on the project
-- The `requirements.txt` file contains all necessary dependencies
-- If adding new packages, update the requirements file using:
-  ```bash
-  pip freeze > requirements.txt
-  ```
+| Table | Columns | Categories |
+|-------|---------|------------|
+| **adt** | All columns | location_category |
+| **hospitalization** | All columns | - |
+| **patient** | All columns | - |
+| **labs** | hospitalization_id, lab_result_dttm, lab_category, lab_value, lab_value_numeric | albumin, alt, ast, bicarbonate, bilirubin_total, bun, chloride, creatinine, inr, lactate, platelet_count, po2_arterial, potassium, pt, ptt, sodium, wbc |
+| **vitals** | hospitalization_id, recorded_dttm, vital_category, vital_value | heart_rate, map, sbp, respiratory_rate, spo2, temp_c |
+| **patient_assessments** | All columns | gcs_total |
+| **medication_admin_continuous** | All columns (including med_dose, med_dose_unit) | norepinephrine, epinephrine, phenylephrine, vasopressin, dopamine, dobutamine, milrinone, isoproterenol |
+| **respiratory_support** | All columns | device_category, fio2_set, peep_set |
+
+## Execution Guide
+
+### Prerequisites (All Approaches)
+```bash
+# 1. Configure site (update clif_config.json)
+# 2. Install dependencies
+uv sync
+# 3. Run preprocessing pipeline
+uv run marimo run code/preprocessing/01_cohort.py
+uv run marimo run code/preprocessing/02_feature_assmebly.py
+uv run marimo run code/preprocessing/03_hourly_qc.py
+```
+
+### Approach 1: Cross-Site Validation
+
+**RUSH (Main Site):**
+```bash
+# After preprocessing, optimize and train models
+uv run python code/approach1_cross_site/stage_1/optimize_xgboost.py
+uv run python code/approach1_cross_site/stage_1/optimize_nn.py
+uv run python code/approach1_cross_site/stage_1/train_models.py
+# Share trained models via BOX
+```
+
+**Federated Sites:**
+```bash
+# Only run inference with RUSH models (no training)
+uv run python code/approach1_cross_site/stage_1/inference.py
+# Upload results to BOX
+```
+
+### Approach 2: Transfer Learning
+
+**RUSH (Main Site):**
+```bash
+# After preprocessing, optimize and train base models
+uv run python code/approach2_transfer_learning/stage_1/optimize_xgboost.py
+uv run python code/approach2_transfer_learning/stage_1/optimize_nn.py
+uv run python code/approach2_transfer_learning/stage_1/transfer_learning.py
+# Share base models via BOX
+```
+
+**Federated Sites:**
+```bash
+# After preprocessing, fine-tune RUSH models with local data
+uv run python code/approach2_transfer_learning/stage_1/transfer_learning.py
+uv run python code/approach2_transfer_learning/stage_1/inference.py
+# Upload fine-tuned models to BOX
+```
+
+### Approach 3: Independent Training
+
+**All Sites (Including RUSH):**
+```bash
+# After preprocessing, train models independently
+uv run python code/approach3_independent/stage_1/train_models.py
+uv run python code/approach3_independent/stage_1/inference.py
+# Upload models to BOX
+```
