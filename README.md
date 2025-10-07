@@ -68,7 +68,7 @@ uv run marimo run code/preprocessing/03_qc_heatmap.py
 
 ### Approach 1: Cross-Site Validation
 
-**RUSH (Main Site):**
+**RUSH (Main Site): (other sites do not run)**
 ```bash
 # After preprocessing, optimize and train models
 uv run python code/approach1_cross_site/stage_1/optimize_xgboost.py
@@ -79,6 +79,8 @@ uv run python code/approach1_cross_site/stage_1/train_models.py
 
 **Federated Sites:**
 ```bash
+# Download RUSH models from BOX
+# Visit CLIF BOX and download the model_storage folder, place it in project root
 # Only run inference with RUSH models (no training)
 uv run python code/approach1_cross_site/stage_1/inference.py
 # Upload results to BOX
@@ -97,6 +99,8 @@ uv run python code/approach2_transfer_learning/stage_1/transfer_learning.py
 
 **Federated Sites:**
 ```bash
+# Download RUSH base models from BOX
+# Visit CLIF BOX and download the model_storage folder, place it in project root
 # After preprocessing, fine-tune RUSH models with local data
 uv run python code/approach2_transfer_learning/stage_1/transfer_learning.py
 uv run python code/approach2_transfer_learning/stage_1/inference.py
