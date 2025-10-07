@@ -61,6 +61,7 @@ uv sync
 # 2. Install dependencies
 uv sync
 # 3. Run preprocessing pipeline
+uv run code/preprocessing/00_scan_tables.py
 uv run marimo run code/preprocessing/01_cohort.py
 uv run marimo run code/preprocessing/02_feature_assmebly.py
 uv run marimo run code/preprocessing/03_qc_heatmap.py
