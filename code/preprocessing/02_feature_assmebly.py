@@ -91,6 +91,7 @@ def _():
         ensure_dir,
         get_output_path,
         json,
+        np,
         os,
         pd,
     )
@@ -287,7 +288,7 @@ def _(mo):
 
 
 @app.cell
-def _(category_filters, clif, cohort_df):
+def _(category_filters, clif, cohort_df, os, output_dir):
     # Create wide dataset for cohort hospitalizations using clifpy
     print("Creating wide dataset using clifpy ClifOrchestrator...")
 
@@ -322,7 +323,6 @@ def _(category_filters, clif, cohort_df):
     wide_df.to_parquet(wide_df_path)
     print(f"✅ Saved wide dataset for QC analysis: {wide_df_path}")
     print(f"File size: {os.path.getsize(wide_df_path) / 1024**2:.1f} MB")
-
     return (wide_df,)
 
 
@@ -707,12 +707,12 @@ def _(mo):
 
 
 @app.cell
-def _(aggregated_standardized):
+def _(aggregated_standardized, np):
     # Ensure all feature columns have compatible data types for PyTorch/XGBoost
     print("Ensuring correct data types for multi-site compatibility...")
 
     aggregated_typed = aggregated_standardized.copy()
-
+    aggregated_typed = aggregated_typed.replace([np.inf, -np.inf], np.nan)
     # Convert boolean columns to int (important for PyTorch compatibility)
     bool_cols = aggregated_typed.select_dtypes(include=['bool']).columns.tolist()
     if bool_cols:
@@ -754,7 +754,7 @@ def _(mo):
 
 
 @app.cell
-def _(aggregated_typed, get_output_path, os, pd):
+def _(aggregated_typed, get_output_path, np, os):
     # Apply RobustScaler to numeric features before saving
     print("Applying RobustScaler to numeric features...")
 
@@ -792,6 +792,7 @@ def _(aggregated_typed, get_output_path, os, pd):
     print("\nFitting RobustScaler on training data...")
     train_mask = aggregated_typed['split_type'] == 'train'
     train_data = aggregated_typed.loc[train_mask, cols_to_scale]
+    train_data = train_data.replace([np.inf, -np.inf], np.nan)
 
     scaler = RobustScaler(
         with_centering=True,
@@ -826,8 +827,7 @@ def _(aggregated_typed, get_output_path, os, pd):
 
     print(f"\n✅ RobustScaler saved to: {scaler_path}")
     print(f"Scaler can be used for inference on new data")
-
-    return (aggregated_scaled, scaler)
+    return (aggregated_scaled,)
 
 
 @app.cell

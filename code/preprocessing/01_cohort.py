@@ -458,6 +458,7 @@ def _(co):
     # Convert units (uses vitals table for weight data)
     co.convert_dose_units_for_continuous_meds(
         preferred_units=preferred_units,
+        override = True, 
         save_to_table=True  # Saves to co.medication_admin_continuous.df_converted
     )
 
@@ -483,6 +484,17 @@ def _(co):
         print("✅ All conversions successful!")
 
     print("\n✅ Medication unit conversion completed")
+    return
+
+
+@app.cell
+def _(co):
+    co.medication_admin_continuous.df_converted
+    return
+
+
+@app.cell
+def _():
     return
 
 
