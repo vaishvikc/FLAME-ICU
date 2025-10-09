@@ -161,10 +161,10 @@ def main():
         print("-" * 50)
 
         print("Evaluating XGBoost model...")
-        xgb_results = evaluate_model(xgb_model, splits, config, model_type='xgboost')
+        xgb_results = evaluate_model(xgb_model, splits, config, model_type='xgboost', splits_to_eval=['val'])
 
         print("\nEvaluating Neural Network model...")
-        nn_results = evaluate_model(nn_model, splits, config, model_type='nn')
+        nn_results = evaluate_model(nn_model, splits, config, model_type='nn', splits_to_eval=['val'])
         print()
 
         # Step 5: Save model artifacts
@@ -195,11 +195,11 @@ def main():
         print(f"Site: {site_name}")
         print(f"Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print()
-        print("Model Performance Summary:")
+        print("Model Performance Summary (Validation Set):")
         print(f"XGBoost Val AUC: {xgb_results['val']['metrics']['roc_auc']:.4f}")
-        print(f"XGBoost Test AUC: {xgb_results['test']['metrics']['roc_auc']:.4f}")
         print(f"Neural Network Val AUC: {nn_results['val']['metrics']['roc_auc']:.4f}")
-        print(f"Neural Network Test AUC: {nn_results['test']['metrics']['roc_auc']:.4f}")
+        print()
+        print("Note: Test set performance will be evaluated separately during inference.")
         print()
         print("Trained models saved and ready for BOX upload!")
         print(f"XGBoost model: {xgb_model_dir}")
@@ -242,25 +242,16 @@ def create_summary_report(config, xgb_results, nn_results, feature_names,
                 'val_accuracy': xgb_results['val']['metrics']['accuracy'],
                 'val_precision': xgb_results['val']['metrics']['precision'],
                 'val_recall': xgb_results['val']['metrics']['recall'],
-                'val_f1': xgb_results['val']['metrics']['f1_score'],
-                'test_auc': xgb_results['test']['metrics']['roc_auc'],
-                'test_accuracy': xgb_results['test']['metrics']['accuracy'],
-                'test_precision': xgb_results['test']['metrics']['precision'],
-                'test_recall': xgb_results['test']['metrics']['recall'],
-                'test_f1': xgb_results['test']['metrics']['f1_score']
+                'val_f1': xgb_results['val']['metrics']['f1_score']
             },
             'neural_network': {
                 'val_auc': nn_results['val']['metrics']['roc_auc'],
                 'val_accuracy': nn_results['val']['metrics']['accuracy'],
                 'val_precision': nn_results['val']['metrics']['precision'],
                 'val_recall': nn_results['val']['metrics']['recall'],
-                'val_f1': nn_results['val']['metrics']['f1_score'],
-                'test_auc': nn_results['test']['metrics']['roc_auc'],
-                'test_accuracy': nn_results['test']['metrics']['accuracy'],
-                'test_precision': nn_results['test']['metrics']['precision'],
-                'test_recall': nn_results['test']['metrics']['recall'],
-                'test_f1': nn_results['test']['metrics']['f1_score']
-            }
+                'val_f1': nn_results['val']['metrics']['f1_score']
+            },
+            'note': 'Test set performance will be evaluated separately during inference to prevent data leakage'
         },
         'feature_importance': {
             'xgboost_top_10_gain': xgb_importance['gain'][:10],

@@ -101,15 +101,15 @@ def main():
         plot_feature_importance(nn_importance, 'nn', config, top_n=20)
         print()
 
-        # Step 4: Evaluate models
-        print("📈 STEP 4: Evaluating models")
+        # Step 4: Evaluate models on validation set
+        print("📈 STEP 4: Evaluating models on validation set")
         print("-" * 50)
 
         print("Evaluating XGBoost model...")
-        xgb_results = evaluate_model(xgb_model, splits, config, model_type='xgboost')
+        xgb_results = evaluate_model(xgb_model, splits, config, model_type='xgboost', splits_to_eval=['val'])
 
         print("\nEvaluating Neural Network model...")
-        nn_results = evaluate_model(nn_model, splits, config, model_type='nn')
+        nn_results = evaluate_model(nn_model, splits, config, model_type='nn', splits_to_eval=['val'])
         print()
 
         # Step 5: Save model artifacts
@@ -138,9 +138,11 @@ def main():
         print("=" * 80)
         print(f"Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print()
-        print("Model Performance Summary:")
+        print("Model Performance Summary (Validation Set):")
         print(f"XGBoost Val AUC: {xgb_results['val']['metrics']['roc_auc']:.4f}")
         print(f"Neural Network Val AUC: {nn_results['val']['metrics']['roc_auc']:.4f}")
+        print()
+        print("Note: Test set performance will be evaluated during inference.")
         print()
         print("Trained models saved and ready for Stage 2 distribution!")
         print(f"XGBoost model: {xgb_model_dir}")
@@ -185,7 +187,8 @@ def create_summary_report(config, xgb_results, nn_results, feature_names, xgb_im
                 'val_precision': nn_results['val']['metrics']['precision'],
                 'val_recall': nn_results['val']['metrics']['recall'],
                 'val_f1': nn_results['val']['metrics']['f1_score']
-            }
+            },
+            'note': 'Test set performance will be evaluated during inference to prevent data leakage'
         },
         'feature_importance': {
             'xgboost_top_10_gain': xgb_importance['gain'][:10],

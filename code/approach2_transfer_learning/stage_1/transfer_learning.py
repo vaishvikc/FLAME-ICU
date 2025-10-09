@@ -113,15 +113,15 @@ def main():
         print("✅ Neural Network fine-tuning completed")
         print()
 
-        # Step 5: Evaluate fine-tuned models
-        print("📈 STEP 5: Evaluating fine-tuned models")
+        # Step 5: Evaluate fine-tuned models on validation set
+        print("📈 STEP 5: Evaluating fine-tuned models on validation set")
         print("-" * 50)
 
         print("Evaluating XGBoost model...")
-        xgb_results = evaluate_model(xgb_model, splits, config, model_type='xgboost')
+        xgb_results = evaluate_model(xgb_model, splits, config, model_type='xgboost', splits_to_eval=['val'])
 
         print("\nEvaluating Neural Network model...")
-        nn_results = evaluate_model(nn_model, splits, config, model_type='nn')
+        nn_results = evaluate_model(nn_model, splits, config, model_type='nn', splits_to_eval=['val'])
         print()
 
         # Step 6: Save fine-tuned model artifacts
@@ -179,7 +179,7 @@ def main():
         # Step 10: Create summary report
         print("📋 STEP 10: Creating summary report")
         print("-" * 50)
-        create_summary_report(config, xgb_results, nn_results, site_name, feature_names)
+        create_summary_report(config, xgb_results, nn_results, detailed_results, site_name, feature_names)
         print()
 
         print("=" * 80)
@@ -188,8 +188,8 @@ def main():
         print(f"Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print()
         print("Model Performance Summary:")
-        print(f"XGBoost Test AUC: {xgb_results['test']['metrics']['roc_auc']:.4f}")
-        print(f"Neural Network Test AUC: {nn_results['test']['metrics']['roc_auc']:.4f}")
+        print(f"XGBoost Test AUC: {detailed_results['xgboost']['metrics']['roc_auc']:.4f}")
+        print(f"Neural Network Test AUC: {detailed_results['nn']['metrics']['roc_auc']:.4f}")
         print()
         print("Fine-tuned models and results saved!")
         print(f"Models saved to: {os.path.join(config['output_paths']['models_dir'], site_name)}")
@@ -204,8 +204,18 @@ def main():
         raise
 
 
-def create_summary_report(config, xgb_results, nn_results, site_name, feature_names):
-    """Create a comprehensive summary report"""
+def create_summary_report(config, xgb_results, nn_results, detailed_results, site_name, feature_names):
+    """
+    Create a comprehensive summary report
+
+    Args:
+        config: Configuration dictionary
+        xgb_results: XGBoost validation results from training phase
+        nn_results: Neural Network validation results from training phase
+        detailed_results: Test results from final inference phase
+        site_name: Name of the site
+        feature_names: List of feature names
+    """
 
     # Get output directory
     results_dir = os.path.join(project_root, config['output_paths']['results_dir'])
@@ -235,11 +245,11 @@ def create_summary_report(config, xgb_results, nn_results, site_name, feature_na
                 'val_precision': xgb_results['val']['metrics']['precision'],
                 'val_recall': xgb_results['val']['metrics']['recall'],
                 'val_f1': xgb_results['val']['metrics']['f1_score'],
-                'test_auc': xgb_results['test']['metrics']['roc_auc'],
-                'test_accuracy': xgb_results['test']['metrics']['accuracy'],
-                'test_precision': xgb_results['test']['metrics']['precision'],
-                'test_recall': xgb_results['test']['metrics']['recall'],
-                'test_f1': xgb_results['test']['metrics']['f1_score']
+                'test_auc': detailed_results['xgboost']['metrics']['roc_auc'],
+                'test_accuracy': detailed_results['xgboost']['metrics']['accuracy'],
+                'test_precision': detailed_results['xgboost']['metrics']['precision'],
+                'test_recall': detailed_results['xgboost']['metrics']['recall'],
+                'test_f1': detailed_results['xgboost']['metrics']['f1_score']
             },
             'neural_network': {
                 'val_auc': nn_results['val']['metrics']['roc_auc'],
@@ -247,11 +257,11 @@ def create_summary_report(config, xgb_results, nn_results, site_name, feature_na
                 'val_precision': nn_results['val']['metrics']['precision'],
                 'val_recall': nn_results['val']['metrics']['recall'],
                 'val_f1': nn_results['val']['metrics']['f1_score'],
-                'test_auc': nn_results['test']['metrics']['roc_auc'],
-                'test_accuracy': nn_results['test']['metrics']['accuracy'],
-                'test_precision': nn_results['test']['metrics']['precision'],
-                'test_recall': nn_results['test']['metrics']['recall'],
-                'test_f1': nn_results['test']['metrics']['f1_score']
+                'test_auc': detailed_results['nn']['metrics']['roc_auc'],
+                'test_accuracy': detailed_results['nn']['metrics']['accuracy'],
+                'test_precision': detailed_results['nn']['metrics']['precision'],
+                'test_recall': detailed_results['nn']['metrics']['recall'],
+                'test_f1': detailed_results['nn']['metrics']['f1_score']
             }
         },
         'next_steps': {

@@ -585,13 +585,21 @@ def train_nn_approach1(splits, config, feature_names):
     return model, training_history
 
 
-def evaluate_model(model, splits, config, model_type='xgboost'):
+def evaluate_model(model, splits, config, model_type='xgboost', splits_to_eval=['val']):
     """
     Evaluate model and calculate comprehensive metrics
+
+    Args:
+        model: Trained model (XGBoost or NN)
+        splits: Dictionary containing train/val/test splits
+        config: Configuration dictionary
+        model_type: 'xgboost' or 'nn'
+        splits_to_eval: List of split names to evaluate (default: ['val'])
+                        Use ['val'] during training, ['val', 'test'] for final evaluation
     """
     results = {}
 
-    for split_name in ['val', 'test']:
+    for split_name in splits_to_eval:
         print(f"Evaluating on {split_name} set...")
 
         X_raw = splits[split_name]['features']

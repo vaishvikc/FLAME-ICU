@@ -385,7 +385,11 @@ def save_inference_results(detailed_results, y_test, results, config):
 
     # Use site-specific filenames
     metrics_filename = f'inference_metrics_{site_name}.json'
-    summary_filename = f'approach_1_stage_1_inference_summary_{site_name}.json'
+
+    # Extract approach identifier dynamically (e.g., "approach_1" from "approach_1_cross_site_validation")
+    approach_parts = config['approach_name'].split('_')
+    approach_id = f"{approach_parts[0]}_{approach_parts[1]}"  # Gets "approach_1", "approach_2", etc.
+    summary_filename = f'{approach_id}_stage_{config["stage"]}_inference_summary_{site_name}.json'
 
     # Save enhanced metrics file
     metrics_path = os.path.join(results_dir, metrics_filename)
