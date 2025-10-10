@@ -75,7 +75,7 @@ The script will:
 
 ## Output Location
 
-Results are saved to: `share_to_box/approach_1_stage_1/`
+Results are saved to: `PHASE1_RESULTS_UPLOAD_ME/approach_1_stage_1/`
 
 Files created:
 - `inference_metrics_[your_site].json` - Complete metrics and curve data
@@ -92,11 +92,11 @@ Files created:
 
 **Error: Models not found**
 - Make sure you're running from the project root directory
-- Verify `models_storage/approach_1/stage_1/` contains `xgboost/` and `nn/` folders
+- Verify `PHASE1_MODELS_UPLOAD_ME/approach_1/stage_1/` contains `xgboost/` and `nn/` folders
 
 **Error: Data file not found**
 - Check your `clif_config.json` paths
-- Ensure preprocessed data exists at: `protected_outputs/preprocessing/consolidated_features.parquet`
+- Ensure preprocessed data exists at: `PHI_DATA/preprocessing/consolidated_features.parquet`
 - Run preprocessing first if needed
 
 **Missing test data**

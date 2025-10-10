@@ -205,7 +205,7 @@ def main():
         print(f"XGBoost model: {xgb_model_dir}")
         print(f"Neural Network model: {nn_model_dir}")
         print()
-        print(f"Upload the entire folder to BOX: share_to_box/approach_3_stage_1/{site_name}/")
+        print(f"Upload the entire folder to BOX: PHASE1_RESULTS_UPLOAD_ME/approach_3_stage_1/{site_name}/")
 
     except Exception as e:
         print(f"❌ ERROR: Training failed with error: {str(e)}")
@@ -259,7 +259,7 @@ def create_summary_report(config, xgb_results, nn_results, feature_names,
         },
         'next_steps': {
             'stage_2_instructions': "Upload models to BOX for cross-site testing",
-            'upload_folder': f"share_to_box/approach_3_stage_1/{site_name}/",
+            'upload_folder': f"PHASE1_RESULTS_UPLOAD_ME/approach_3_stage_1/{site_name}/",
             'model_locations': {
                 'xgboost': f"{config['output_paths']['models_dir']}xgboost/",
                 'neural_network': f"{config['output_paths']['models_dir']}nn/"

@@ -22,9 +22,9 @@ def ensure_dir(file_path):
 
 
 def get_output_path(stage, filename):
-    """Get standardized output path for protected_outputs"""
+    """Get standardized output path for PHI_DATA"""
     project_root = get_project_root()
-    return os.path.join(project_root, 'protected_outputs', stage, filename)
+    return os.path.join(project_root, 'PHI_DATA', stage, filename)
 
 
 def load_config():

@@ -585,6 +585,157 @@ def train_nn_approach1(splits, config, feature_names):
     return model, training_history
 
 
+def calculate_bootstrap_confidence_intervals(y_true, y_pred_proba, y_pred, config):
+    """
+    Calculate bootstrap confidence intervals for all metrics
+
+    Args:
+        y_true: True labels (numpy array)
+        y_pred_proba: Predicted probabilities (numpy array)
+        y_pred: Binary predictions (numpy array)
+        config: Configuration dictionary containing bootstrap settings
+
+    Returns:
+        dict: CI bounds for each metric ({metric}_ci_lower, {metric}_ci_upper)
+    """
+    bootstrap_config = config.get('bootstrap_config', {})
+
+    if not bootstrap_config.get('enabled', False):
+        print("Bootstrap CI calculation is disabled in config")
+        return {}
+
+    n_iterations = bootstrap_config.get('n_iterations', 1000)
+    confidence_level = bootstrap_config.get('confidence_level', 0.95)
+    stratified = bootstrap_config.get('stratified', True)
+    random_seed = bootstrap_config.get('random_seed', 42)
+
+    print(f"Calculating bootstrap confidence intervals ({n_iterations} iterations)...")
+
+    # Set random seed for reproducibility
+    np.random.seed(random_seed)
+
+    n_samples = len(y_true)
+    alpha = 1 - confidence_level
+
+    # Store bootstrap samples for each metric
+    bootstrap_metrics = {
+        'roc_auc': [],
+        'accuracy': [],
+        'precision': [],
+        'recall': [],
+        'f1_score': [],
+        'pr_auc': [],
+        'brier_score': [],
+        'calibration_error': []
+    }
+
+    # Get calibration bins from config
+    n_bins = config['evaluation_config']['calibration_bins']
+
+    for i in range(n_iterations):
+        # Generate bootstrap sample indices
+        if stratified:
+            # Stratified sampling - maintain class distribution
+            pos_indices = np.where(y_true == 1)[0]
+            neg_indices = np.where(y_true == 0)[0]
+
+            pos_sample = np.random.choice(pos_indices, size=len(pos_indices), replace=True)
+            neg_sample = np.random.choice(neg_indices, size=len(neg_indices), replace=True)
+
+            boot_indices = np.concatenate([pos_sample, neg_sample])
+            np.random.shuffle(boot_indices)
+        else:
+            # Simple random sampling with replacement
+            boot_indices = np.random.choice(n_samples, size=n_samples, replace=True)
+
+        # Create bootstrap sample
+        y_true_boot = y_true[boot_indices]
+        y_pred_proba_boot = y_pred_proba[boot_indices]
+        y_pred_boot = y_pred[boot_indices]
+
+        # Skip if bootstrap sample has only one class (can't calculate some metrics)
+        if len(np.unique(y_true_boot)) < 2:
+            continue
+
+        # Calculate metrics for this bootstrap sample
+        try:
+            bootstrap_metrics['roc_auc'].append(
+                roc_auc_score(y_true_boot, y_pred_proba_boot)
+            )
+        except:
+            pass
+
+        try:
+            bootstrap_metrics['accuracy'].append(
+                accuracy_score(y_true_boot, y_pred_boot)
+            )
+        except:
+            pass
+
+        try:
+            bootstrap_metrics['precision'].append(
+                precision_score(y_true_boot, y_pred_boot, zero_division=0)
+            )
+        except:
+            pass
+
+        try:
+            bootstrap_metrics['recall'].append(
+                recall_score(y_true_boot, y_pred_boot, zero_division=0)
+            )
+        except:
+            pass
+
+        try:
+            bootstrap_metrics['f1_score'].append(
+                f1_score(y_true_boot, y_pred_boot, zero_division=0)
+            )
+        except:
+            pass
+
+        try:
+            bootstrap_metrics['pr_auc'].append(
+                average_precision_score(y_true_boot, y_pred_proba_boot)
+            )
+        except:
+            pass
+
+        try:
+            bootstrap_metrics['brier_score'].append(
+                brier_score_loss(y_true_boot, y_pred_proba_boot)
+            )
+        except:
+            pass
+
+        # Calibration error
+        try:
+            fraction_of_positives, mean_predicted_value = calibration_curve(
+                y_true_boot, y_pred_proba_boot, n_bins=n_bins, strategy='uniform'
+            )
+            cal_error = np.mean(np.abs(fraction_of_positives - mean_predicted_value))
+            bootstrap_metrics['calibration_error'].append(cal_error)
+        except:
+            pass
+
+    # Calculate confidence intervals using percentile method
+    ci_results = {}
+    lower_percentile = (alpha / 2) * 100
+    upper_percentile = (1 - alpha / 2) * 100
+
+    for metric_name, values in bootstrap_metrics.items():
+        if len(values) > 0:
+            ci_lower = np.percentile(values, lower_percentile)
+            ci_upper = np.percentile(values, upper_percentile)
+            ci_results[f'{metric_name}_ci_lower'] = float(ci_lower)
+            ci_results[f'{metric_name}_ci_upper'] = float(ci_upper)
+        else:
+            ci_results[f'{metric_name}_ci_lower'] = np.nan
+            ci_results[f'{metric_name}_ci_upper'] = np.nan
+
+    print(f"✅ Bootstrap CIs calculated for {len(bootstrap_metrics)} metrics")
+    return ci_results
+
+
 def evaluate_model(model, splits, config, model_type='xgboost', splits_to_eval=['val']):
     """
     Evaluate model and calculate comprehensive metrics
@@ -653,17 +804,30 @@ def evaluate_model(model, splits, config, model_type='xgboost', splits_to_eval=[
         cm = confusion_matrix(y_true, y_pred)
         metrics['confusion_matrix'] = cm.tolist()
 
+        # Calculate bootstrap confidence intervals
+        ci_results = calculate_bootstrap_confidence_intervals(
+            y_true, y_pred_proba, y_pred, config
+        )
+        metrics.update(ci_results)
+
         results[split_name] = {
             'metrics': metrics
         }
 
-        # Print key metrics
+        # Print key metrics with confidence intervals if available
         print(f"{split_name.upper()} Results:")
-        print(f"  ROC AUC: {metrics['roc_auc']:.4f}")
-        print(f"  Accuracy: {metrics['accuracy']:.4f}")
-        print(f"  Precision: {metrics['precision']:.4f}")
-        print(f"  Recall: {metrics['recall']:.4f}")
-        print(f"  F1 Score: {metrics['f1_score']:.4f}")
+        if 'roc_auc_ci_lower' in metrics:
+            print(f"  ROC AUC: {metrics['roc_auc']:.4f} [{metrics['roc_auc_ci_lower']:.4f}-{metrics['roc_auc_ci_upper']:.4f}]")
+            print(f"  Accuracy: {metrics['accuracy']:.4f} [{metrics['accuracy_ci_lower']:.4f}-{metrics['accuracy_ci_upper']:.4f}]")
+            print(f"  Precision: {metrics['precision']:.4f} [{metrics['precision_ci_lower']:.4f}-{metrics['precision_ci_upper']:.4f}]")
+            print(f"  Recall: {metrics['recall']:.4f} [{metrics['recall_ci_lower']:.4f}-{metrics['recall_ci_upper']:.4f}]")
+            print(f"  F1 Score: {metrics['f1_score']:.4f} [{metrics['f1_score_ci_lower']:.4f}-{metrics['f1_score_ci_upper']:.4f}]")
+        else:
+            print(f"  ROC AUC: {metrics['roc_auc']:.4f}")
+            print(f"  Accuracy: {metrics['accuracy']:.4f}")
+            print(f"  Precision: {metrics['precision']:.4f}")
+            print(f"  Recall: {metrics['recall']:.4f}")
+            print(f"  F1 Score: {metrics['f1_score']:.4f}")
 
     return results
 

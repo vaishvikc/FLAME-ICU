@@ -30,13 +30,13 @@ cohort_metadata.json
 *.csv
 
 # Removed old output folder references
-/protected_outputs/
-protected_outputs/
+/PHI_DATA/
+PHI_DATA/
 .kiro
 
 clif_config.json
 clif_config.json
 /logs
 /output
-share_to_box/
-/models_storage
+PHASE1_RESULTS_UPLOAD_ME/
+/PHASE1_MODELS_UPLOAD_ME

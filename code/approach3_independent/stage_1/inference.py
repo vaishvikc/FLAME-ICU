@@ -37,7 +37,8 @@ sys.path.insert(0, approach_dir)
 from approach_3_utils import (
     load_config,
     ICUMortalityNN,
-    apply_missing_value_handling
+    apply_missing_value_handling,
+    calculate_bootstrap_confidence_intervals
 )
 
 warnings.filterwarnings('ignore')
@@ -299,6 +300,12 @@ def calculate_detailed_metrics(y_test, results, config):
         cm = confusion_matrix(y_test, y_pred)
         metrics['confusion_matrix'] = cm.tolist()
 
+        # Calculate bootstrap confidence intervals
+        ci_results = calculate_bootstrap_confidence_intervals(
+            y_test.values, y_pred_proba, y_pred, config
+        )
+        metrics.update(ci_results)
+
         # ROC curve data
         fpr, tpr, roc_thresholds = roc_curve(y_test, y_pred_proba)
         precision, recall, pr_thresholds = precision_recall_curve(y_test, y_pred_proba)
@@ -318,15 +325,24 @@ def calculate_detailed_metrics(y_test, results, config):
             'calibration_curve': calibration_data
         }
 
-        # Print summary
+        # Print summary with confidence intervals if available
         print(f"\n{model_type.upper()} Model Results:")
-        print(f"  ROC AUC: {metrics['roc_auc']:.4f}")
-        print(f"  Accuracy: {metrics['accuracy']:.4f}")
-        print(f"  Precision: {metrics['precision']:.4f}")
-        print(f"  Recall: {metrics['recall']:.4f}")
-        print(f"  F1 Score: {metrics['f1_score']:.4f}")
-        print(f"  PR AUC: {metrics['pr_auc']:.4f}")
-        print(f"  Brier Score: {metrics['brier_score']:.4f}")
+        if 'roc_auc_ci_lower' in metrics:
+            print(f"  ROC AUC: {metrics['roc_auc']:.4f} [{metrics['roc_auc_ci_lower']:.4f}-{metrics['roc_auc_ci_upper']:.4f}]")
+            print(f"  Accuracy: {metrics['accuracy']:.4f} [{metrics['accuracy_ci_lower']:.4f}-{metrics['accuracy_ci_upper']:.4f}]")
+            print(f"  Precision: {metrics['precision']:.4f} [{metrics['precision_ci_lower']:.4f}-{metrics['precision_ci_upper']:.4f}]")
+            print(f"  Recall: {metrics['recall']:.4f} [{metrics['recall_ci_lower']:.4f}-{metrics['recall_ci_upper']:.4f}]")
+            print(f"  F1 Score: {metrics['f1_score']:.4f} [{metrics['f1_score_ci_lower']:.4f}-{metrics['f1_score_ci_upper']:.4f}]")
+            print(f"  PR AUC: {metrics['pr_auc']:.4f} [{metrics['pr_auc_ci_lower']:.4f}-{metrics['pr_auc_ci_upper']:.4f}]")
+            print(f"  Brier Score: {metrics['brier_score']:.4f} [{metrics['brier_score_ci_lower']:.4f}-{metrics['brier_score_ci_upper']:.4f}]")
+        else:
+            print(f"  ROC AUC: {metrics['roc_auc']:.4f}")
+            print(f"  Accuracy: {metrics['accuracy']:.4f}")
+            print(f"  Precision: {metrics['precision']:.4f}")
+            print(f"  Recall: {metrics['recall']:.4f}")
+            print(f"  F1 Score: {metrics['f1_score']:.4f}")
+            print(f"  PR AUC: {metrics['pr_auc']:.4f}")
+            print(f"  Brier Score: {metrics['brier_score']:.4f}")
 
     return detailed_results
 
@@ -551,7 +567,7 @@ def main():
         print(f"XGBoost AUC: {detailed_results['xgboost']['metrics']['roc_auc']:.4f}")
         print(f"Neural Network AUC: {detailed_results['nn']['metrics']['roc_auc']:.4f}")
         print()
-        print(f"Upload results to BOX: share_to_box/approach_3_stage_1/{site_name}/")
+        print(f"Upload results to BOX: PHASE1_RESULTS_UPLOAD_ME/approach_3_stage_1/{site_name}/")
 
     except Exception as e:
         print(f"❌ ERROR: Inference failed with error: {str(e)}")

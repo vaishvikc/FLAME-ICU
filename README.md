@@ -24,7 +24,19 @@ Models are shared via BOX for cross-site evaluation and ensemble construction, w
 
 ## Setup
 
-### 1. Configure Site
+### 1. Install UV
+
+**Mac/Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### 2. Configure Site
 Update `clif_config.json`:
 ```json
 {
@@ -35,10 +47,12 @@ Update `clif_config.json`:
 }
 ```
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 ```bash
 uv sync
 ```
+
+**Troubleshooting:** If you encounter errors when running scripts with `uv run`, use `uv run marimo edit <script.py>` to debug at the cell level in an interactive environment.
 
 ## Required CLIF Tables
 
@@ -53,6 +67,24 @@ uv sync
 | **medication_admin_continuous** | All columns (including med_dose, med_dose_unit) | norepinephrine, epinephrine, phenylephrine, vasopressin, dopamine, dobutamine, milrinone, isoproterenol |
 | **respiratory_support** | All columns | device_category, fio2_set, peep_set |
 
+## Logging Command Output
+
+To capture command output to a log file for debugging or record-keeping:
+
+**Mac/Linux:**
+```bash
+# Capture both stdout and stderr to a log file
+uv run code/preprocessing/01_cohort.py 2>&1 | tee logs/cohort.log
+```
+
+**Windows (PowerShell):**
+```powershell
+# Capture both stdout and stderr to a log file
+uv run code/preprocessing/01_cohort.py 2>&1 | Tee-Object logs/cohort.log
+```
+
+Create the logs directory first: `mkdir -p logs` (Mac/Linux) or `New-Item -ItemType Directory -Path logs` (Windows)
+
 ## Execution Guide
 
 ### Prerequisites (All Approaches)
@@ -62,9 +94,9 @@ uv sync
 uv sync
 # 3. Run preprocessing pipeline
 uv run code/preprocessing/00_scan_tables.py
-uv run marimo run code/preprocessing/01_cohort.py
-uv run marimo run code/preprocessing/02_feature_assmebly.py
-uv run marimo run code/preprocessing/03_qc_heatmap.py
+uv run code/preprocessing/01_cohort.py
+uv run code/preprocessing/02_feature_assmebly.py
+uv run code/preprocessing/03_qc_heatmap.py
 ```
 
 ### Approach 1: Cross-Site Validation
@@ -74,7 +106,7 @@ uv run marimo run code/preprocessing/03_qc_heatmap.py
 # Download RUSH models from BOX
 # Visit CLIF BOX and download the model_storage folder, place it in project root
 # Only run inference with RUSH models (no training)
-uv run python code/approach1_cross_site/stage_1/inference.py
+uv run code/approach1_cross_site/stage_1/inference.py
 # Upload results to BOX
 ```
 
@@ -85,7 +117,7 @@ uv run python code/approach1_cross_site/stage_1/inference.py
 # Download RUSH base models from BOX
 # Visit CLIF BOX and download the model_storage folder, place it in project root
 # After preprocessing, fine-tune RUSH models with local data
-uv run python code/approach2_transfer_learning/stage_1/transfer_learning.py
+uv run code/approach2_transfer_learning/stage_1/transfer_learning.py
 # Upload fine-tuned models to BOX
 ```
 
@@ -94,7 +126,7 @@ uv run python code/approach2_transfer_learning/stage_1/transfer_learning.py
 **Federated Sites:**
 ```bash
 # After preprocessing, train models independently
-uv run python code/approach3_independent/stage_1/train_models.py
-uv run python code/approach3_independent/stage_1/inference.py
+uv run code/approach3_independent/stage_1/train_models.py
+uv run code/approach3_independent/stage_1/inference.py
 # Upload models to BOX
 ```

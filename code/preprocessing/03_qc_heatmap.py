@@ -39,7 +39,7 @@ def _():
     import os
 
     print("=== ICU 24-Hour Missing Data Analysis ===")
-    return get_output_path, get_project_root, np, os, pl, plt, sns
+    return get_output_path, get_project_root, os, pl, plt, sns
 
 
 @app.cell
@@ -47,7 +47,7 @@ def _(get_output_path, get_project_root, os):
     # Setup paths using config_helper (same as 02_feature_assembly.py)
     data_path = get_output_path('preprocessing', '')
     project_root = get_project_root()
-    output_path = os.path.join(project_root, 'share_to_box', 'qc')
+    output_path = os.path.join(project_root, 'PHASE1_RESULTS_UPLOAD_ME', 'qc')
 
     os.makedirs(output_path, exist_ok=True)
 
@@ -123,7 +123,6 @@ def _(cohort_df, df, pl):
         print(f"  Events after end: {(~df_check['before_end']).sum()}")
     else:
         print("✅ All events are within their 24-hour windows")
-
     return (df_with_times,)
 
 
@@ -150,7 +149,7 @@ def _(df_with_times, pl):
 
 
 @app.cell
-def _(df_hourly):
+def _(df_hourly, pl):
     # Identify feature columns (exclude metadata and static demographics)
     exclude_cols = [
         # Identifiers
@@ -175,7 +174,7 @@ def _(df_hourly):
 
     print(f"Found {len(feature_cols)} numeric features for analysis")
     print(f"Sample features: {feature_cols[:10]}")
-    return exclude_cols, feature_cols
+    return (feature_cols,)
 
 
 @app.cell
@@ -233,7 +232,7 @@ def _(df_hourly, feature_cols, pl):
 
     print(f"✅ Calculated missing data % for {missing_df['feature'].n_unique()} features")
     print(f"Total records: {len(missing_df):,} (25 per feature: 24 hourly + 1 overall)")
-    return missing_df, total_hosp
+    return (missing_df,)
 
 
 @app.cell
@@ -270,8 +269,7 @@ def _(missing_df, pl):
     print("\nFeature categories:")
     for _cat_row in category_counts.to_dicts():
         print(f"  {_cat_row['category']}: {_cat_row['count'] // 25} features")  # Divide by 25 (24 hours + Total)
-
-    return categorize_feature, missing_with_cat
+    return (missing_with_cat,)
 
 
 @app.cell
@@ -281,7 +279,7 @@ def _(mo):
 
 
 @app.cell
-def _(missing_with_cat, np, os, output_path, pl, plt, sns):
+def _(missing_with_cat, os, output_path, pl, plt, sns):
     # Create heatmap for each category using Seaborn
     categories = ['vitals', 'labs', 'medications', 'respiratory', 'other']
 
@@ -360,19 +358,18 @@ def _(missing_with_cat, np, os, output_path, pl, plt, sns):
 
         print(f"✅ Saved {_cat} heatmap: {output_file}")
         heatmap_files.append(output_file)
-
-    return categories, heatmap_files
+    return
 
 
 @app.cell
-def _(missing_with_cat, os, output_path):
-    # Save missing data to CSV for further analysis
+def _(missing_with_cat, os, output_path, pl):
+    # Save missing data to CSV for further analysis (totals only)
     missing_csv_path = os.path.join(output_path, 'hourly_missing_data.csv')
-    missing_with_cat.to_pandas().to_csv(missing_csv_path, index=False)
+    missing_with_cat.filter(pl.col('hour') == 24).select(['feature', 'missing_pct']).to_pandas().to_csv(missing_csv_path, index=False)
 
     print(f"\n✅ Saved missing data: {missing_csv_path}")
     print(f"File size: {os.path.getsize(missing_csv_path) / 1024:.1f} KB")
-    return (missing_csv_path,)
+    return
 
 
 @app.cell
@@ -415,7 +412,7 @@ def _(missing_with_cat, pl):
         print(f"  {_bot_feat_row['feature']}: {_bot_feat_row['mean_missing']:.1f}% missing")
 
     print("\n✅ Missing data analysis complete!")
-    return cat_means, feat_missing, overall_stats
+    return
 
 
 if __name__ == "__main__":

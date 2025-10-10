@@ -4,7 +4,7 @@
   "description": "Approach 1: Cross-Site Model Validation - Train at RUSH, test generalization without local training",
 
   "data_config": {
-    "consolidated_features_path": "protected_outputs/preprocessing/aggregated_features_24hr.parquet",
+    "consolidated_features_path": "PHI_DATA/preprocessing/aggregated_features_24hr.parquet",
     "feature_selection": "explicit_list",
     "feature_columns": [
       "lactate_max", "bun_max", "creatinine_max", "ast_max", "alt_max", "bilirubin_total_max", "inr_max", "ptt_max", "pt_max",
@@ -97,10 +97,18 @@
     "calibration_bins": 10
   },
 
+  "bootstrap_config": {
+    "enabled": true,
+    "n_iterations": 1000,
+    "confidence_level": 0.95,
+    "stratified": true,
+    "random_seed": 42
+  },
+
   "output_paths": {
-    "models_dir": "models_storage/approach_1/stage_1/",
-    "results_dir": "share_to_box/approach_1_stage_1/",
-    "plots_dir": "share_to_box/approach_1_stage_1/plots/"
+    "models_dir": "PHASE1_MODELS_UPLOAD_ME/approach_1/stage_1/",
+    "results_dir": "PHASE1_RESULTS_UPLOAD_ME/approach_1_stage_1/",
+    "plots_dir": "PHASE1_RESULTS_UPLOAD_ME/approach_1_stage_1/plots/"
   },
 
   "random_seeds": {

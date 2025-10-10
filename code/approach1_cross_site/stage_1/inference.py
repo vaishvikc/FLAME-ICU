@@ -40,7 +40,8 @@ from approach_1_utils import (
     load_config,
     evaluate_model,
     ICUMortalityNN,
-    apply_missing_value_handling
+    apply_missing_value_handling,
+    calculate_bootstrap_confidence_intervals
 )
 
 warnings.filterwarnings('ignore')
@@ -293,6 +294,12 @@ def calculate_detailed_metrics(y_test, results, config):
         cm = confusion_matrix(y_test, y_pred)
         metrics['confusion_matrix'] = cm.tolist()
 
+        # Calculate bootstrap confidence intervals
+        ci_results = calculate_bootstrap_confidence_intervals(
+            y_test.values, y_pred_proba, y_pred, config
+        )
+        metrics.update(ci_results)
+
         # ROC curve data
         fpr, tpr, roc_thresholds = roc_curve(y_test, y_pred_proba)
         precision, recall, pr_thresholds = precision_recall_curve(y_test, y_pred_proba)
@@ -316,15 +323,24 @@ def calculate_detailed_metrics(y_test, results, config):
             'decision_curve': decision_curve_data
         }
 
-        # Print summary
+        # Print summary with confidence intervals
         print(f"\n{model_type.upper()} Model Results:")
-        print(f"  ROC AUC: {metrics['roc_auc']:.4f}")
-        print(f"  Accuracy: {metrics['accuracy']:.4f}")
-        print(f"  Precision: {metrics['precision']:.4f}")
-        print(f"  Recall: {metrics['recall']:.4f}")
-        print(f"  F1 Score: {metrics['f1_score']:.4f}")
-        print(f"  PR AUC: {metrics['pr_auc']:.4f}")
-        print(f"  Brier Score: {metrics['brier_score']:.4f}")
+        if 'roc_auc_ci_lower' in metrics:
+            print(f"  ROC AUC: {metrics['roc_auc']:.4f} [{metrics['roc_auc_ci_lower']:.4f}-{metrics['roc_auc_ci_upper']:.4f}]")
+            print(f"  Accuracy: {metrics['accuracy']:.4f} [{metrics['accuracy_ci_lower']:.4f}-{metrics['accuracy_ci_upper']:.4f}]")
+            print(f"  Precision: {metrics['precision']:.4f} [{metrics['precision_ci_lower']:.4f}-{metrics['precision_ci_upper']:.4f}]")
+            print(f"  Recall: {metrics['recall']:.4f} [{metrics['recall_ci_lower']:.4f}-{metrics['recall_ci_upper']:.4f}]")
+            print(f"  F1 Score: {metrics['f1_score']:.4f} [{metrics['f1_score_ci_lower']:.4f}-{metrics['f1_score_ci_upper']:.4f}]")
+            print(f"  PR AUC: {metrics['pr_auc']:.4f} [{metrics['pr_auc_ci_lower']:.4f}-{metrics['pr_auc_ci_upper']:.4f}]")
+            print(f"  Brier Score: {metrics['brier_score']:.4f} [{metrics['brier_score_ci_lower']:.4f}-{metrics['brier_score_ci_upper']:.4f}]")
+        else:
+            print(f"  ROC AUC: {metrics['roc_auc']:.4f}")
+            print(f"  Accuracy: {metrics['accuracy']:.4f}")
+            print(f"  Precision: {metrics['precision']:.4f}")
+            print(f"  Recall: {metrics['recall']:.4f}")
+            print(f"  F1 Score: {metrics['f1_score']:.4f}")
+            print(f"  PR AUC: {metrics['pr_auc']:.4f}")
+            print(f"  Brier Score: {metrics['brier_score']:.4f}")
 
     return detailed_results
 

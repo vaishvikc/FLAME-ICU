@@ -10,7 +10,7 @@ def _():
     return (mo,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -38,7 +38,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Setup and Configuration""")
     return
@@ -86,7 +86,7 @@ def _(load_config):
     return (config,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Data Loading and Preparation""")
     return
@@ -142,7 +142,7 @@ def _(adt_df, hosp_df, pd):
     return (icu_data,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## ICU Cohort Selection""")
     return
@@ -256,7 +256,7 @@ def _(icu_data_grouped, pd):
     return (icu_data_final,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Add Demographics and Create Final Cohort""")
     return
@@ -274,6 +274,56 @@ def _(icu_data_final, patient_df, pd):
         on='patient_id',
         how='left'
     )
+
+    # Standardize demographic categories
+    print("Standardizing demographic categories...")
+
+    # 1. Lowercase all categorical columns
+    categorical_cols = ['sex_category', 'ethnicity_category', 'race_category', 'language_category']
+    for _demo_col in categorical_cols:
+        icu_data_demo[_demo_col] = icu_data_demo[_demo_col].str.lower()
+
+    # 2. Standardize race_category: keep black, white, asian; all others → other
+    print(f"Race distribution before grouping:")
+    print(icu_data_demo['race_category'].value_counts())
+
+    # After lowercasing, group race categories using str.contains to catch variations
+    # Create temporary column to preserve original values during checking
+    icu_data_demo['_temp_race'] = icu_data_demo['race_category'].copy()
+
+    # Map specific races based on string contains
+    icu_data_demo.loc[icu_data_demo['_temp_race'].str.contains('black', na=False, case=False), 'race_category'] = 'black'
+    icu_data_demo.loc[icu_data_demo['_temp_race'].str.contains('white', na=False, case=False), 'race_category'] = 'white'
+    icu_data_demo.loc[icu_data_demo['_temp_race'].str.contains('asian', na=False, case=False), 'race_category'] = 'asian'
+
+    # Set remaining non-null values (that don't contain black/white/asian) to 'other'
+    icu_data_demo.loc[
+        ~icu_data_demo['_temp_race'].str.contains('black|white|asian', na=False, case=False) &
+        icu_data_demo['_temp_race'].notna(),
+        'race_category'
+    ] = 'other'
+
+    # Drop temporary column
+    icu_data_demo = icu_data_demo.drop(columns=['_temp_race'])
+
+    print(f"\nRace distribution after grouping:")
+    print(icu_data_demo['race_category'].value_counts())
+
+    # 3. Standardize language_category: keep english; all others → other
+    print(f"\nLanguage distribution before grouping:")
+    print(icu_data_demo['language_category'].value_counts())
+
+    # After lowercasing, group language categories
+    icu_data_demo.loc[
+        (icu_data_demo['language_category'] != 'english') &
+        icu_data_demo['language_category'].notna(),
+        'language_category'
+    ] = 'other'
+
+    print(f"\nLanguage distribution after grouping:")
+    print(icu_data_demo['language_category'].value_counts())
+
+    print("✅ Demographic standardization completed")
 
     # Filter out records with missing demographics (data quality)
     demographic_cols = ['sex_category', 'ethnicity_category', 'race_category']
@@ -333,7 +383,7 @@ def _(cohort_final):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## SOFA Score Computation""")
     return
@@ -376,35 +426,66 @@ def _(cohort_final):
 
 @app.cell
 def _(co, sofa_cohort_ids):
-    # Load required tables for SOFA computation with cohort filtering
-    print("Loading required tables for SOFA computation...")
-    print("SOFA requires: Labs (creatinine, platelet_count, po2_arterial, bilirubin_total)")
-    print("               Vitals (map, spo2)")
-    print("               Assessments (gcs_total)")
-    print("               Medications (norepinephrine, epinephrine, dopamine, dobutamine)")
-    print("               Respiratory (device_category, fio2_set)")
+    # Load required tables for SOFA computation with cohort and category filtering
+    print("Loading required tables for SOFA computation with category filters...")
+    print("  Labs: creatinine, platelet_count, po2_arterial, bilirubin_total (4 categories)")
+    print("  Vitals: map, spo2, weight_kg (3 categories)")
+    print("  Assessments: gcs_total (1 category)")
+    print("  Medications: norepinephrine, epinephrine, dopamine, dobutamine (4 categories)")
+    print("  Respiratory: all device categories with fio2_set")
 
-    # Define columns to load for each table (optimize memory usage)
-    sofa_columns = {
-        'labs': ['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value', 'lab_value_numeric'],
-        'vitals': ['hospitalization_id', 'recorded_dttm', 'vital_category', 'vital_value'],
-        'patient_assessments': ['hospitalization_id', 'recorded_dttm', 'assessment_category', 'numerical_value'],
-        'medication_admin_continuous': None,  # Load all columns
-        'respiratory_support': None  # Load all columns
+    # Define columns AND category filters for each table (memory optimization)
+    sofa_config = {
+        'labs': {
+            'columns': ['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value', 'lab_value_numeric'],
+            'categories': ['creatinine', 'platelet_count', 'po2_arterial', 'bilirubin_total']
+        },
+        'vitals': {
+            'columns': ['hospitalization_id', 'recorded_dttm', 'vital_category', 'vital_value'],
+            'categories': ['map', 'spo2', 'weight_kg']
+        },
+        'patient_assessments': {
+            'columns': ['hospitalization_id', 'recorded_dttm', 'assessment_category', 'numerical_value'],
+            'categories': ['gcs_total']
+        },
+        'medication_admin_continuous': {
+            'columns': None,  # Load all columns
+            'categories': ['norepinephrine', 'epinephrine', 'dopamine', 'dobutamine']
+        },
+        'respiratory_support': {
+            'columns': None,  # Load all columns
+            'categories': None  # Load all device categories (need device_category + fio2_set)
+        }
     }
 
-    sofa_tables = ['labs', 'vitals', 'patient_assessments', 'medication_admin_continuous', 'respiratory_support']
+    for table_name, table_config in sofa_config.items():
+        table_cols = table_config['columns']
+        table_cats = table_config['categories']
 
-    for table_name in sofa_tables:
-        table_cols = sofa_columns.get(table_name)
-        print(f"Loading {table_name} with {len(table_cols) if table_cols else 'all'} columns and {len(sofa_cohort_ids)} hospitalization filters...")
+        # Build filters dictionary
+        filters = {'hospitalization_id': sofa_cohort_ids}
+
+        # Add category filter if specified
+        if table_cats is not None:
+            category_col = {
+                'labs': 'lab_category',
+                'vitals': 'vital_category',
+                'patient_assessments': 'assessment_category',
+                'medication_admin_continuous': 'med_category',
+                'respiratory_support': 'device_category'
+            }[table_name]
+            filters[category_col] = table_cats
+            print(f"Loading {table_name} ({len(table_cats)} categories, {len(sofa_cohort_ids)} hospitalizations)...")
+        else:
+            print(f"Loading {table_name} (all categories, {len(sofa_cohort_ids)} hospitalizations)...")
+
         co.load_table(
             table_name,
-            filters={'hospitalization_id': sofa_cohort_ids},
+            filters=filters,
             columns=table_cols
         )
 
-    print("✅ All required tables loaded for SOFA computation")
+    print("✅ All required tables loaded for SOFA computation with category filters")
     return
 
 
@@ -488,17 +569,6 @@ def _(co):
 
 
 @app.cell
-def _(co):
-    co.medication_admin_continuous.df_converted
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
 def _(co, sofa_cohort_df):
     # Compute SOFA scores
     print("Computing SOFA scores...")
@@ -528,7 +598,7 @@ def _(cohort_final, pd, sofa_scores):
     return (cohort_with_sofa,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Cohort Summary and Validation""")
     return
@@ -556,7 +626,7 @@ def _(cohort_with_sofa):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Save Cohort to Output Directory""")
     return
@@ -593,23 +663,6 @@ def _(cohort_with_sofa, ensure_dir, get_output_path, json, os):
 
     print(f"✅ Metadata saved to: {metadata_path}")
     print("\n🎉 Cohort generation completed successfully!")
-    return
-
-
-@app.cell
-def _(sofa_scores):
-    sofa_scores
-    return
-
-
-@app.cell
-def _(cohort_with_sofa):
-    cohort_with_sofa
-    return
-
-
-@app.cell
-def _():
     return
 
 
